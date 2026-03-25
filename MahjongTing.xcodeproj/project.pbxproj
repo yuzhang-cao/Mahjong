@@ -6,13 +6,35 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		491C4F812F1E2F0A005FC428 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 491C4F802F1E2F0A005FC428 /* ZIPFoundation */; };
+		4940C7552F73C96C00361126 /* .md in Resources */ = {isa = PBXBuildFile; fileRef = 4940C7542F73C96C00361126 /* .md */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
-		49EACD422F0950D8008C5D39 /* MahjongTing.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MahjongTing.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4940C7542F73C96C00361126 /* .md */ = {isa = PBXFileReference; lastKnownFileType = text; path = .md; sourceTree = "<group>"; };
+		49EACD422F0950D8008C5D39 /* MahjongTing.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = MahjongTing.app; path = "/Users/caoyuzhang/Desktop/MahjongTing4.1_副本/build/Debug-iphoneos/MahjongTing.app"; sourceTree = "<absolute>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		49EACDA82F096C73008C5D39 /* Exceptions for "MahjongTing" folder in "MahjongTing" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			platformFiltersByRelativePath = {
+				"mahjong-ios-wrapper-kit 2/MahjongTingApp.swift" = (ios, );
+			};
+			target = 49EACD412F0950D8008C5D39 /* MahjongTing */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		49EACD442F0950D8008C5D39 /* MahjongTing */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				49EACDA82F096C73008C5D39 /* Exceptions for "MahjongTing" folder in "MahjongTing" target */,
+			);
 			path = MahjongTing;
 			sourceTree = "<group>";
 		};
@@ -23,6 +45,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				491C4F812F1E2F0A005FC428 /* ZIPFoundation in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -33,16 +56,8 @@
 			isa = PBXGroup;
 			children = (
 				49EACD442F0950D8008C5D39 /* MahjongTing */,
-				49EACD432F0950D8008C5D39 /* Products */,
+				4940C7542F73C96C00361126 /* .md */,
 			);
-			sourceTree = "<group>";
-		};
-		49EACD432F0950D8008C5D39 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				49EACD422F0950D8008C5D39 /* MahjongTing.app */,
-			);
-			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -65,6 +80,7 @@
 			);
 			name = MahjongTing;
 			packageProductDependencies = (
+				491C4F802F1E2F0A005FC428 /* ZIPFoundation */,
 			);
 			productName = MahjongTing;
 			productReference = 49EACD422F0950D8008C5D39 /* MahjongTing.app */;
@@ -94,8 +110,11 @@
 			);
 			mainGroup = 49EACD392F0950D8008C5D39;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				491C4F7F2F1E2F0A005FC428 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
+			);
 			preferredProjectObjectVersion = 77;
-			productRefGroup = 49EACD432F0950D8008C5D39 /* Products */;
+			productRefGroup = 49EACD392F0950D8008C5D39;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -109,6 +128,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4940C7552F73C96C00361126 /* .md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -251,8 +271,14 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GR6YBCDW7R;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MahjongTing/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "用于扫描识别麻将牌并自动录入手牌";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "用于保存识别样本以改进识别效果";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -263,7 +289,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = none.MahjongTing;
+				PRODUCT_BUNDLE_IDENTIFIER = com.caoyuzhang.MahjongTing;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -282,8 +308,14 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GR6YBCDW7R;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MahjongTing/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "用于扫描识别麻将牌并自动录入手牌";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "用于保存识别样本以改进识别效果";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -294,7 +326,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = none.MahjongTing;
+				PRODUCT_BUNDLE_IDENTIFIER = com.caoyuzhang.MahjongTing;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -328,6 +360,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		491C4F7F2F1E2F0A005FC428 /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/weichsel/ZIPFoundation.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.9.20;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		491C4F802F1E2F0A005FC428 /* ZIPFoundation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 491C4F7F2F1E2F0A005FC428 /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
+			productName = ZIPFoundation;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 49EACD3A2F0950D8008C5D39 /* Project object */;
 }

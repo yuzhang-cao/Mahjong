@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#ffffff" />
+  <link rel="manifest" href="./manifest.json" />
+  <title>麻将听牌助手（粤/川，图形化离线）</title>
+  <style>
+    :root{
+      --pad: 14px;
+      --radius: 12px;
+      --border: #d9d9d9;
+      --bg: #fff;
+      --fg: #111;
+      --muted: #666;
+      --danger: #9a1b1b;
+      --warn: #9a5b00;
+    }
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",Arial,sans-serif;
+      margin:0; background:var(--bg); color:var(--fg);
+    }
+    header{ padding:var(--pad); border-bottom:1px solid var(--border); }
+    header h1{ margin:0; font-size:18px; font-weight:800; }
+    header p{ margin:8px 0 0; font-size:13px; color:#555; line-height:1.45; }
+
+    main{ padding:var(--pad); display:grid; gap:12px; max-width:980px; margin:0 auto; }
+    .card{ border:1px solid var(--border); border-radius:var(--radius); padding:12px; }
+    .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    label{ font-size:13px; color:#333; }
+    select, button{
+      font-size:16px; border-radius:10px; border:1px solid var(--border);
+      padding:10px 12px; background:#fff; color:#111;
+    }
+    button{ cursor:pointer; user-select:none; -webkit-tap-highlight-color: transparent; }
+    button.primary{ background:#111; color:#fff; border-color:#111; }
+    button.ghost{ background:#fff; }
+    button.tab{ padding:8px 10px; font-size:15px; }
+    button.tab.active{ background:#111; color:#fff; border-color:#111; }
+
+    .help{ font-size:12px; color:var(--muted); line-height:1.55; margin-top:8px; }
+    .pill{ display:inline-block; padding:2px 8px; border:1px solid var(--border); border-radius:999px; font-size:12px; color:#333; }
+    .status{ font-size:12px; color:var(--muted); }
+    .status b{ color:#111; }
+    .status .danger{ color:var(--danger); font-weight:700; }
+    .status .warn{ color:var(--warn); font-weight:700; }
+
+    .hand{
+      display:flex; flex-wrap:wrap; gap:8px;
+      padding:10px; border:1px dashed var(--border); border-radius:12px;
+      min-height:44px;
+    }
+    .chip{
+      display:inline-flex; align-items:center; justify-content:center;
+      border:1px solid var(--border); border-radius:999px;
+      padding:8px 12px; font-size:14px; background:#fff;
+    }
+    .chip:hover{ border-color:#111; }
+
+    .grid{
+      display:grid; gap:10px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    @media(min-width:520px){ .grid{ grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+    @media(min-width:860px){ .grid{ grid-template-columns: repeat(9, minmax(0, 1fr)); } }
+
+    .tile{
+      position:relative;
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:14px 8px;
+      font-size:18px;
+      line-height:1.1;
+      text-align:center;
+      background:#fff;
+    }
+    .tile small{ display:block; margin-top:6px; font-size:12px; color:var(--muted); }
+    .badge{
+      position:absolute; top:8px; right:8px;
+      min-width:22px; height:22px; border-radius:999px;
+      border:1px solid var(--border);
+      display:flex; align-items:center; justify-content:center;
+      font-size:12px; color:#111; background:#fff;
+      padding:0 6px;
+    }
+    .tile:active{ transform: scale(0.99); }
+
+    pre{
+      margin:0; white-space:pre-wrap; word-break:break-word;
+      font-size:14px; line-height:1.5;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+    }
+    footer{ padding:var(--pad); color:var(--muted); font-size:12px; text-align:center; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>麻将听牌助手（广东/四川，图形化离线 PWA）</h1>
+    <p>点牌录入：先选“万/筒/条/字/花”，再点具体牌即可加入手牌；点击上方手牌条目可撤销（减一张）。支持自动切换广东/四川。</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <div class="row">
+        <label>规则：</label>
+        <select id="rule_mode">
+          <option value="auto">自动（推荐）</option>
+          <option value="sichuan">四川麻将</option>
+          <option value="guangdong">广东麻将</option>
+        </select>
+        <span class="pill" id="rule_badge">当前：自动</span>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <label>七对：</label>
+        <select id="opt_qidui">
+          <option value="on">开启</option>
+          <option value="off">关闭</option>
+        </select>
+
+        <label id="lbl_13yao">十三幺（广东）：</label>
+        <select id="opt_13yao">
+          <option value="off">关闭</option>
+          <option value="on">开启</option>
+        </select>
+
+        <span class="pill" id="flower_hint" style="display:none;">花牌不计入 13/14 张（只做记录）</span>
+      </div>
+
+      <div class="row" style="margin-top:10px;" id="dingque_row">
+        <label>定缺（四川可选）：</label>
+        <select id="dingque">
+          <option value="none">不设置/不限制</option>
+          <option value="m">万</option>
+          <option value="p">筒</option>
+          <option value="s">条</option>
+        </select>
+      </div>
+
+      <div class="help" style="margin-top:10px;">
+        自动规则判定：只要你手里出现“字牌/花牌”，自动切到广东；若手里完全没有字花牌，则自动按四川。
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row">
+        <strong>手牌（点击条目可撤销一张）</strong>
+        <span class="status" id="hand_status"></span>
+      </div>
+      <div class="hand" id="hand_area"></div>
+      <div class="row" style="margin-top:10px;">
+        <button class="ghost" id="btnUndo">撤销最后一张</button>
+        <button class="ghost" id="btnClear">清空</button>
+        <button class="primary" id="btnCalc">计算听牌/出牌方案</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row">
+        <strong>点牌区</strong>
+        <span class="status" id="panel_status"></span>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <button class="tab active" id="tab_m" data-tab="m">万</button>
+        <button class="tab" id="tab_p" data-tab="p">筒</button>
+        <button class="tab" id="tab_s" data-tab="s">条</button>
+        <button class="tab" id="tab_z" data-tab="z">字</button>
+        <button class="tab" id="tab_f" data-tab="f">花</button>
+      </div>
+      <div class="help">
+        操作：点下面的牌会“加一张”；若点错，直接点上方手牌条目即可“减一张”。同一张牌最多 4 张（花牌默认每种最多 1 张）。
+      </div>
+      <div style="margin-top:10px;">
+        <div class="grid" id="tile_grid"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row">
+        <strong>结果</strong>
+        <span class="status" id="status"></span>
+      </div>
+      <div style="margin-top:10px;">
+        <pre id="out">请先点牌录入手牌，然后点击“计算”。</pre>
+      </div>
+    </section>
+  </main>
+
+  <footer>建议：在手机浏览器中“添加到主屏幕”后使用，可离线运行。</footer>
+
+  <script src="./app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(function(){});
+    }
+  </script>
+</body>
+</html>
