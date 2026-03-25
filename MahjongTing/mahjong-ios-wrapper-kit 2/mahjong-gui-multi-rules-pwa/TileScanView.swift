@@ -36,7 +36,7 @@ struct TileScanSheet: View {
     @State private var collectLabel: Int = 0
     @State private var collectSaved: Int = 0
 
-    private let extractor = SingleTilePatchExtractor()
+    
 
     var body: some View {
         ZStack {
@@ -251,13 +251,8 @@ struct TileScanSheet: View {
                         let snap = manager.snapshots[manager.snapshots.count / 2]
 
                         // 优先裁剪单牌 patch；失败则回退保存整帧（保证永远能产出训练图）
-                        let patch: CIImage
-                        do {
-                            patch = try extractor.extract(from: snap.rgb)
-                        } catch {
-                            patch = CIImage(cvPixelBuffer: snap.rgb)
-                                .oriented(forExifOrientation: Int32(CGImagePropertyOrientation.right.rawValue))
-                        }
+                        let patch = CIImage(cvPixelBuffer: snap.rgb)
+                            .oriented(forExifOrientation: Int32(CGImagePropertyOrientation.right.rawValue))
 
                         _ = try MahjongDatasetStore.shared.saveTrainingPatch(ciImage: patch, label: collectLabel)
 
