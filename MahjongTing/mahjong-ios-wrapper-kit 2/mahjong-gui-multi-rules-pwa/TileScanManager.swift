@@ -3,6 +3,7 @@ import Combine
 import AVFoundation
 import ARKit
 import UIKit
+import ImageIO
 
 struct ARFrameSnapshot {
     let rgb: CVPixelBuffer
@@ -11,6 +12,7 @@ struct ARFrameSnapshot {
     let intrinsics: simd_float3x3
     let cameraTransform: simd_float4x4
     let timestamp: TimeInterval
+    let exifOrientation: CGImagePropertyOrientation
 }
 
 enum TileScanState: Equatable {
@@ -78,7 +80,6 @@ final class TileScanManager: NSObject, ObservableObject, ARSessionDelegate {
         let config = ARWorldTrackingConfiguration()
         config.isAutoFocusEnabled = true
 
-        // 关键：用 supportsFrameSemantics 判断是否支持深度语义
         var semantics: ARWorldTrackingConfiguration.FrameSemantics = []
 
         if enableSceneDepth,
@@ -99,7 +100,6 @@ final class TileScanManager: NSObject, ObservableObject, ARSessionDelegate {
             self.state = .running
         }
     }
-
 
     func stopSession() {
         session?.pause()
@@ -148,7 +148,8 @@ final class TileScanManager: NSObject, ObservableObject, ARSessionDelegate {
                 depthConfidence: confMap,
                 intrinsics: frame.camera.intrinsics,
                 cameraTransform: frame.camera.transform,
-                timestamp: frame.timestamp
+                timestamp: frame.timestamp,
+                exifOrientation: .right
             )
 
             snapshots.append(snap)
@@ -171,11 +172,10 @@ final class TileScanManager: NSObject, ObservableObject, ARSessionDelegate {
         }
         return UIImage(cgImage: cgImage)
     }
-    
+
     func readyForNextCapture() {
         DispatchQueue.main.async {
             self.state = .running
         }
     }
-
 }

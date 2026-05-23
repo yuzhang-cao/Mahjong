@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import Vision
+@preconcurrency import Vision
 import CoreML
 import CoreImage
 import ImageIO
@@ -30,19 +30,24 @@ enum YOLOTileRecognizerError: LocalizedError {
 
 final class VisionCoreMLYOLODetectorRecognizer: TileRecognizerProtocol {
 
+    struct OverlayResult {
+        let ids: [Int]
+        let normalizedRowRect: CGRect?
+    }
+
     private struct Detection {
         let id34: Int?
         let x: CGFloat
         let y: CGFloat
+        let boundingBox: CGRect
         let confidence: Float
     }
 
     private let modelName: String
     private let model: VNCoreMLModel?
-    private let orientation: CGImagePropertyOrientation = .right
 
-    /// 先保守一点，后面如果漏检多，再降到 0.25
-    private let minConfidence: Float = 0.35
+    private let minConfidence: Float = 0.20
+    private let nmsIoUThreshold: CGFloat = 0.45
 
     init(modelName: String = "best") {
         self.modelName = modelName
@@ -68,43 +73,80 @@ final class VisionCoreMLYOLODetectorRecognizer: TileRecognizerProtocol {
             throw YOLOTileRecognizerError.modelMissing(name: modelName)
         }
 
-        let snap = snapshots[snapshots.count / 2]
-        let ci = CIImage(cvPixelBuffer: snap.rgb)
-        let oriented = ci.oriented(forExifOrientation: Int32(orientation.rawValue))
+        let result = try recognizeBestCandidate(snapshots: snapshots, model: model)
+        return result.ids
+    }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let request = VNCoreMLRequest(model: model) { request, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
-                }
+    func recognizeWithOverlay(snapshots: [ARFrameSnapshot]) async throws -> OverlayResult {
+        guard !snapshots.isEmpty else {
+            throw YOLOTileRecognizerError.insufficientDetections(found: 0)
+        }
+        guard let model else {
+            throw YOLOTileRecognizerError.modelMissing(name: modelName)
+        }
 
-                let observations = (request.results as? [VNRecognizedObjectObservation]) ?? []
+        return try recognizeBestCandidate(snapshots: snapshots, model: model)
+    }
 
-                do {
-                    let ids = try self.parseObservations(observations)
-                    continuation.resume(returning: ids)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+    private func recognizeBestCandidate(snapshots: [ARFrameSnapshot], model: VNCoreMLModel) throws -> OverlayResult {
+        var bestRow: [Detection] = []
+        var bestScore: Float = -1
+        var bestFound = 0
+
+        for snap in snapshots {
+            let observations = try observations(for: snap, model: model)
+            let detections = (try? parseDetections(observations)) ?? []
+            if detections.isEmpty { continue }
+
+            let row = selectPrimaryRow(from: detections)
+            let ids = sortedIds(from: row)
+            let avgConfidence = row.isEmpty ? 0 : row.reduce(Float(0)) { $0 + $1.confidence } / Float(row.count)
+            let score = Float(ids.count) * 10 + avgConfidence
+
+            if ids.count > bestFound {
+                bestFound = ids.count
             }
 
-            /// YOLO 检测先用 scaleFill 跑通；后面若发现框有系统性偏差，再调
-            request.imageCropAndScaleOption = .scaleFill
-
-            let handler = VNImageRequestHandler(ciImage: oriented, options: [:])
-
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    try handler.perform([request])
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+            if score > bestScore {
+                bestScore = score
+                bestRow = row
             }
         }
+
+        let ids = sortedIds(from: bestRow)
+        if ids.count < 13 {
+            throw YOLOTileRecognizerError.insufficientDetections(found: max(bestFound, ids.count))
+        }
+
+        return OverlayResult(ids: ids, normalizedRowRect: Self.unionRect(bestRow.map { $0.boundingBox }))
+    }
+
+    private func observations(for snap: ARFrameSnapshot, model: VNCoreMLModel) throws -> [VNRecognizedObjectObservation] {
+        let ci = CIImage(cvPixelBuffer: snap.rgb)
+        let oriented = ci.oriented(forExifOrientation: Int32(snap.exifOrientation.rawValue))
+
+        let request = VNCoreMLRequest(model: model)
+        request.imageCropAndScaleOption = .scaleFill
+
+        let handler = VNImageRequestHandler(ciImage: oriented, options: [:])
+        try handler.perform([request])
+
+        return (request.results as? [VNRecognizedObjectObservation]) ?? []
     }
 
     private func parseObservations(_ observations: [VNRecognizedObjectObservation]) throws -> [Int] {
+        let detections = try parseDetections(observations)
+        let row = selectPrimaryRow(from: detections)
+        let ids = sortedIds(from: row)
+
+        if ids.count < 13 {
+            throw YOLOTileRecognizerError.insufficientDetections(found: ids.count)
+        }
+
+        return ids
+    }
+
+    private func parseDetections(_ observations: [VNRecognizedObjectObservation]) throws -> [Detection] {
         guard !observations.isEmpty else {
             throw YOLOTileRecognizerError.noDetections
         }
@@ -123,6 +165,7 @@ final class VisionCoreMLYOLODetectorRecognizer: TileRecognizerProtocol {
                     id34: idx34,
                     x: obs.boundingBox.midX,
                     y: obs.boundingBox.midY,
+                    boundingBox: obs.boundingBox,
                     confidence: best.confidence
                 )
             )
@@ -132,7 +175,6 @@ final class VisionCoreMLYOLODetectorRecognizer: TileRecognizerProtocol {
             throw YOLOTileRecognizerError.noDetections
         }
 
-        /// 过滤 UNKNOWN（当前先丢弃），剩下的按“一排”聚类
         let valid = detections.compactMap { det -> Detection? in
             guard det.id34 != nil else { return nil }
             return det
@@ -142,36 +184,74 @@ final class VisionCoreMLYOLODetectorRecognizer: TileRecognizerProtocol {
             throw YOLOTileRecognizerError.noDetections
         }
 
-        let ys = valid.map { $0.y }.sorted()
-        let medianY = ys[ys.count / 2]
+        return nonMaximumSuppressed(valid)
+    }
 
-        /// 一排手牌，取 y 中心接近中位数的一簇
+    private func selectPrimaryRow(from detections: [Detection]) -> [Detection] {
         let band: CGFloat = 0.15
-        let oneRow = valid.filter { abs($0.y - medianY) <= band }
+        var bestRow: [Detection] = []
+        var bestScore: Float = -1
 
-        let row: [Detection]
-        if oneRow.count >= 10 {
-            row = oneRow
-        } else {
-            /// 如果过滤过严，回退到全部
-            row = valid
+        for center in detections {
+            let row = detections.filter { abs($0.y - center.y) <= band }
+            let avgConfidence = row.isEmpty ? 0 : row.reduce(Float(0)) { $0 + $1.confidence } / Float(row.count)
+            let score = Float(row.count) * 10 + avgConfidence
+
+            if score > bestScore {
+                bestScore = score
+                bestRow = row
+            }
         }
 
-        var chosen = row
+        var chosen = bestRow.isEmpty ? detections : bestRow
 
-        /// 极端情况下如果框太多，只保留最可信的 18 张，再按 x 排序
         if chosen.count > 18 {
             chosen = Array(chosen.sorted(by: { $0.confidence > $1.confidence }).prefix(18))
         }
 
-        let sorted = chosen.sorted { $0.x < $1.x }
-        let ids = sorted.compactMap { $0.id34 }
+        return chosen
+    }
 
-        if ids.count < 13 {
-            throw YOLOTileRecognizerError.insufficientDetections(found: ids.count)
+    private func nonMaximumSuppressed(_ detections: [Detection]) -> [Detection] {
+        var kept: [Detection] = []
+        let sorted = detections.sorted { $0.confidence > $1.confidence }
+
+        for detection in sorted {
+            let overlapsExisting = kept.contains { existing in
+                Self.intersectionOverUnion(detection.boundingBox, existing.boundingBox) >= nmsIoUThreshold
+            }
+
+            if !overlapsExisting {
+                kept.append(detection)
+            }
         }
 
-        return ids
+        return kept
+    }
+
+    private func sortedIds(from detections: [Detection]) -> [Int] {
+        return detections
+            .sorted { $0.x < $1.x }
+            .compactMap { $0.id34 }
+    }
+
+    private static func unionRect(_ rects: [CGRect]) -> CGRect? {
+        guard var union = rects.first else { return nil }
+        for rect in rects.dropFirst() {
+            union = union.union(rect)
+        }
+        return union
+    }
+
+    private static func intersectionOverUnion(_ a: CGRect, _ b: CGRect) -> CGFloat {
+        let intersection = a.intersection(b)
+        if intersection.isNull || intersection.isEmpty { return 0 }
+
+        let intersectionArea = intersection.width * intersection.height
+        let unionArea = a.width * a.height + b.width * b.height - intersectionArea
+        if unionArea <= 0 { return 0 }
+
+        return intersectionArea / unionArea
     }
 
     /// 兼容两种情况：
@@ -206,69 +286,58 @@ final class VisionCoreMLYOLODetectorRecognizer: TileRecognizerProtocol {
     /// 当前 app 主体逻辑还是 34 类，所以先做 38 -> 34 的临时映射
     private static func map38To34(_ idx38: Int) -> Int? {
         switch idx38 {
-        // 1m 1p 1s 1z
-        case 0:  return 0    // 1m
-        case 1:  return 9    // 1p
-        case 2:  return 18   // 1s
-        case 3:  return 27   // 1z = 東
+        case 0:  return 0
+        case 1:  return 9
+        case 2:  return 18
+        case 3:  return 27
 
-        // 2m 2p 2s 2z
-        case 4:  return 1    // 2m
-        case 5:  return 10   // 2p
-        case 6:  return 19   // 2s
-        case 7:  return 28   // 2z = 南
+        case 4:  return 1
+        case 5:  return 10
+        case 6:  return 19
+        case 7:  return 28
 
-        // 3m 3p 3s 3z
-        case 8:  return 2    // 3m
-        case 9:  return 11   // 3p
-        case 10: return 20   // 3s
-        case 11: return 29   // 3z = 西
+        case 8:  return 2
+        case 9:  return 11
+        case 10: return 20
+        case 11: return 29
 
-        // 4m 4p 4s 4z
-        case 12: return 3    // 4m
-        case 13: return 12   // 4p
-        case 14: return 21   // 4s
-        case 15: return 30   // 4z = 北
+        case 12: return 3
+        case 13: return 12
+        case 14: return 21
+        case 15: return 30
 
-        // 5m 5p 5s 5z
-        case 16: return 4    // 5m
-        case 17: return 13   // 5p
-        case 18: return 22   // 5s
-        case 19: return 33   // 5z = 白
+        case 16: return 4
+        case 17: return 13
+        case 18: return 22
+        case 19: return 33
 
-        // 6m 6p 6s 6z
-        case 20: return 5    // 6m
-        case 21: return 14   // 6p
-        case 22: return 23   // 6s
-        case 23: return 32   // 6z = 發
+        case 20: return 5
+        case 21: return 14
+        case 22: return 23
+        case 23: return 32
 
-        // 7m 7p 7s 7z
-        case 24: return 6    // 7m
-        case 25: return 15   // 7p
-        case 26: return 24   // 7s
-        case 27: return 31   // 7z = 中
+        case 24: return 6
+        case 25: return 15
+        case 26: return 24
+        case 27: return 31
 
-        // 8m 8p 8s
-        case 28: return 7    // 8m
-        case 29: return 16   // 8p
-        case 30: return 25   // 8s
+        case 28: return 7
+        case 29: return 16
+        case 30: return 25
 
-        // 9m 9p 9s
-        case 31: return 8    // 9m
-        case 32: return 17   // 9p
-        case 33: return 26   // 9s
+        case 31: return 8
+        case 32: return 17
+        case 33: return 26
 
-        // UNKNOWN
         case 34:
             return nil
 
-        // 赤五先临时映射回普通五
         case 35:
-            return 4    // 0m -> 5m
+            return 4
         case 36:
-            return 13   // 0p -> 5p
+            return 13
         case 37:
-            return 22   // 0s -> 5s
+            return 22
 
         default:
             return nil

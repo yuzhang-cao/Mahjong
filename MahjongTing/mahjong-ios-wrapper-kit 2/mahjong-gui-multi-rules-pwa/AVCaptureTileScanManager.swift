@@ -9,12 +9,142 @@ import Foundation
 import Combine
 import AVFoundation
 import UIKit
+import ImageIO
+import OSLog
 
-final class AVCaptureTileScanManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+nonisolated final class AVCaptureFrameOutput: NSObject,
+    AVCaptureVideoDataOutputSampleBufferDelegate,
+    @unchecked Sendable {
+
+    private var snapshotBuffer: [ARFrameSnapshot] = []
+    private let snapshotLock = NSLock()
+    private var deviceOrientation: UIDeviceOrientation = .portrait
+    private let orientationLock = NSLock()
+    private let onPreviewImage: (UIImage) -> Void
+    private let onCaptured: (Int) -> Void
+
+    private let ciContext = CIContext()
+
+    private var isCapturing: Bool = false
+    private var captureTargetCount: Int = 0
+    private var captureInterval: TimeInterval = 0.25
+    private var lastCaptureTime: TimeInterval = 0
+
+    private var lastPreviewTime: TimeInterval = 0
+    private let previewInterval: TimeInterval = 0.12
+
+    init(onPreviewImage: @escaping (UIImage) -> Void,
+         onCaptured: @escaping (Int) -> Void) {
+        self.onPreviewImage = onPreviewImage
+        self.onCaptured = onCaptured
+        super.init()
+    }
+
+    var snapshots: [ARFrameSnapshot] {
+        snapshotLock.lock()
+        defer { snapshotLock.unlock() }
+        return snapshotBuffer
+    }
+
+    private var currentExifOrientation: CGImagePropertyOrientation {
+        orientationLock.lock()
+        let orientation = deviceOrientation
+        orientationLock.unlock()
+        return Self.exifOrientationForBackCamera(orientation)
+    }
+
+    func updateDeviceOrientation(_ orientation: UIDeviceOrientation) {
+        guard orientation == .portrait ||
+            orientation == .portraitUpsideDown ||
+            orientation == .landscapeLeft ||
+            orientation == .landscapeRight else {
+            return
+        }
+
+        orientationLock.lock()
+        deviceOrientation = orientation
+        orientationLock.unlock()
+    }
+
+    func captureBurst(targetCount: Int, interval: TimeInterval) {
+        snapshotLock.lock()
+        snapshotBuffer.removeAll(keepingCapacity: true)
+        snapshotLock.unlock()
+
+        captureTargetCount = max(1, targetCount)
+        captureInterval = max(0.05, interval)
+        lastCaptureTime = 0
+        isCapturing = true
+    }
+
+    private static func exifOrientationForBackCamera(
+        _ deviceOrientation: UIDeviceOrientation
+    ) -> CGImagePropertyOrientation {
+        switch deviceOrientation {
+        case .portrait:
+            return .right
+        case .portraitUpsideDown:
+            return .left
+        case .landscapeLeft:
+            return .down
+        case .landscapeRight:
+            return .up
+        default:
+            return .right
+        }
+    }
+
+    func captureOutput(_ output: AVCaptureOutput,
+                       didOutput sampleBuffer: CMSampleBuffer,
+                       from connection: AVCaptureConnection) {
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+
+        let now = CACurrentMediaTime()
+
+        // 预览图节流
+        if now - lastPreviewTime >= previewInterval {
+            lastPreviewTime = now
+
+            let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+            if let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) {
+                let uiImage = UIImage(cgImage: cgImage)
+                onPreviewImage(uiImage)
+            }
+        }
+
+        // burst 抓帧
+        guard isCapturing else { return }
+
+        if lastCaptureTime == 0 || (now - lastCaptureTime) >= captureInterval {
+            lastCaptureTime = now
+
+            let snapshot = ARFrameSnapshot(
+                rgb: pixelBuffer,
+                depth: nil,
+                depthConfidence: nil,
+                intrinsics: matrix_identity_float3x3,
+                cameraTransform: matrix_identity_float4x4,
+                timestamp: now,
+                exifOrientation: currentExifOrientation
+            )
+
+            snapshotLock.lock()
+            snapshotBuffer.append(snapshot)
+            let snapshotCount = snapshotBuffer.count
+            snapshotLock.unlock()
+
+            if snapshotCount >= captureTargetCount {
+                isCapturing = false
+                onCaptured(snapshotCount)
+            }
+        }
+    }
+}
+
+final class AVCaptureTileScanManager: NSObject, ObservableObject {
 
     @Published private(set) var state: TileScanState = .idle
     @Published private(set) var lastPreviewImage: UIImage? = nil
-    @Published private(set) var snapshots: [ARFrameSnapshot] = []
 
     let session = AVCaptureSession()
 
@@ -23,18 +153,29 @@ final class AVCaptureTileScanManager: NSObject, ObservableObject, AVCaptureVideo
 
     private var videoOutput: AVCaptureVideoDataOutput?
     private var currentDevice: AVCaptureDevice?
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "MahjongTing",
+                                category: "Capture")
 
-    private let ciContext = CIContext()
+    private lazy var frameOutput = AVCaptureFrameOutput(
+        onPreviewImage: { [weak self] image in
+            Task { @MainActor in
+                self?.lastPreviewImage = image
+            }
+        },
+        onCaptured: { [weak self] count in
+            Task { @MainActor in
+                self?.state = .captured(count: count)
+            }
+        }
+    )
 
-    // burst 参数
-    private var isCapturing: Bool = false
-    private var captureTargetCount: Int = 0
-    private var captureInterval: TimeInterval = 0.25
-    private var lastCaptureTime: TimeInterval = 0
+    var snapshots: [ARFrameSnapshot] {
+        frameOutput.snapshots
+    }
 
-    // 预览刷新节流
-    private var lastPreviewTime: TimeInterval = 0
-    private let previewInterval: TimeInterval = 0.12
+    func updateDeviceOrientation(_ orientation: UIDeviceOrientation) {
+        frameOutput.updateDeviceOrientation(orientation)
+    }
 
     func requestCameraPermissionIfNeeded(completion: @escaping (Bool) -> Void) {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
@@ -54,6 +195,8 @@ final class AVCaptureTileScanManager: NSObject, ObservableObject, AVCaptureVideo
     }
 
     func startSession() {
+        let frameOutput = frameOutput
+
         sessionQueue.async {
             if self.session.isRunning {
                 DispatchQueue.main.async {
@@ -96,7 +239,7 @@ final class AVCaptureTileScanManager: NSObject, ObservableObject, AVCaptureVideo
                     kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
                 ]
                 output.alwaysDiscardsLateVideoFrames = true
-                output.setSampleBufferDelegate(self, queue: self.videoOutputQueue)
+                output.setSampleBufferDelegate(frameOutput, queue: self.videoOutputQueue)
 
                 if self.session.canAddOutput(output) {
                     self.session.addOutput(output)
@@ -122,7 +265,7 @@ final class AVCaptureTileScanManager: NSObject, ObservableObject, AVCaptureVideo
 
                 device.unlockForConfiguration()
             } catch {
-                print("相机配置失败: \(error.localizedDescription)")
+                self.logger.error("相机配置失败: \(error.localizedDescription, privacy: .public)")
             }
 
             self.session.commitConfiguration()
@@ -148,11 +291,10 @@ final class AVCaptureTileScanManager: NSObject, ObservableObject, AVCaptureVideo
     func captureBurst(targetCount: Int = 5, interval: TimeInterval = 0.25) {
         guard case .running = state else { return }
 
-        self.snapshots.removeAll(keepingCapacity: true)
-        self.captureTargetCount = max(1, targetCount)
-        self.captureInterval = max(0.05, interval)
-        self.lastCaptureTime = 0
-        self.isCapturing = true
+        let frameOutput = frameOutput
+        videoOutputQueue.async {
+            frameOutput.captureBurst(targetCount: targetCount, interval: interval)
+        }
     }
 
     func readyForNextCapture() {
@@ -162,9 +304,9 @@ final class AVCaptureTileScanManager: NSObject, ObservableObject, AVCaptureVideo
     }
 
     func setFocusPoint(_ point: CGPoint) {
-        guard let device = currentDevice else { return }
-
         sessionQueue.async {
+            guard let device = self.currentDevice else { return }
+
             do {
                 try device.lockForConfiguration()
 
@@ -184,53 +326,7 @@ final class AVCaptureTileScanManager: NSObject, ObservableObject, AVCaptureVideo
 
                 device.unlockForConfiguration()
             } catch {
-                print("设置对焦点失败: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    func captureOutput(_ output: AVCaptureOutput,
-                       didOutput sampleBuffer: CMSampleBuffer,
-                       from connection: AVCaptureConnection) {
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-
-        let now = CACurrentMediaTime()
-
-        // 预览图节流
-        if now - lastPreviewTime >= previewInterval {
-            lastPreviewTime = now
-
-            let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-            if let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) {
-                let uiImage = UIImage(cgImage: cgImage)
-                DispatchQueue.main.async {
-                    self.lastPreviewImage = uiImage
-                }
-            }
-        }
-
-        // burst 抓帧
-        guard isCapturing else { return }
-
-        if lastCaptureTime == 0 || (now - lastCaptureTime) >= captureInterval {
-            lastCaptureTime = now
-
-            let snapshot = ARFrameSnapshot(
-                rgb: pixelBuffer,
-                depth: nil,
-                depthConfidence: nil,
-                intrinsics: matrix_identity_float3x3,
-                cameraTransform: matrix_identity_float4x4,
-                timestamp: now
-            )
-
-            snapshots.append(snapshot)
-
-            if snapshots.count >= captureTargetCount {
-                isCapturing = false
-                DispatchQueue.main.async {
-                    self.state = .captured(count: self.snapshots.count)
-                }
+                self.logger.error("设置对焦点失败: \(error.localizedDescription, privacy: .public)")
             }
         }
     }

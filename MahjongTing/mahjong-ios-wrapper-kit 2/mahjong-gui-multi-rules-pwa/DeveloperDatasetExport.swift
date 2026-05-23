@@ -114,7 +114,10 @@ final class DeveloperDatasetExport {
             try? fm.removeItem(at: zipURL)
         }
 
-        guard let archive = Archive(url: zipURL, accessMode: .create) else {
+        let archive: Archive
+        do {
+            archive = try Archive(url: zipURL, accessMode: .create)
+        } catch {
             throw DeveloperExportError.exportCopyFailed("无法创建 ZIP 文件：\(zipURL.lastPathComponent)")
         }
 
@@ -181,11 +184,13 @@ final class DeveloperDatasetExport {
             throw DeveloperExportError.datasetEmpty
         }
 
-        let newest = jpgs.sorted { a, b in
+        guard let newest = jpgs.sorted(by: { a, b in
             let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             return da > db
-        }.first!
+        }).first else {
+            throw DeveloperExportError.datasetEmpty
+        }
 
         let tmp = fm.temporaryDirectory
         let out = tmp.appendingPathComponent("Sample_label\(label)_\(newest.lastPathComponent)")

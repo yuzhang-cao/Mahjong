@@ -13,9 +13,25 @@ private struct BrandBanner: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(.ultraThinMaterial)
-            .clipShape(Capsule())
+            .appleClip(AppleCornerRadius.panel)
             .shadow(radius: 6)
             .padding(.top, 10)
+    }
+}
+
+private enum ConcealedHandActionKind: String {
+    case addKong = "加杠"
+    case anKong = "暗杠"
+    case mingKong = "杠"
+    case pong = "碰"
+}
+
+private struct ConcealedHandAction: Identifiable {
+    let tileIndex: Int
+    let kind: ConcealedHandActionKind
+
+    var id: String {
+        "\(tileIndex)-\(kind.rawValue)"
     }
 }
 
@@ -44,7 +60,7 @@ private struct SettingsSheet: View {
                         Text(m.displayName).tag(m)
                     }
                 }
-                .onChange(of: vm.ruleMode) { _ in
+                .onChange(of: vm.ruleMode) { _, _ in
                     vm.normalizeForRuleMode()
                     if vm.autoComputeEnabled {
                         vm.compute()
@@ -128,27 +144,40 @@ struct NativeMahjongView: View {
     private let columns9: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
     private let columns7: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 10), count: 4)
 
-    // === 手牌区布局参数：为“极端情况”预留，避免页面跳动 ===
-    private let reservedRows: Int = 6
+    // === 手牌区布局参数 ===
     private let handChipMinWidth: CGFloat = 150
     private let handChipRowHeight: CGFloat = 44
     private let handChipSpacing: CGFloat = 10
+    private let concealedTileAspectRatio: CGFloat = 0.72
+    private let concealedTileMinWidth: CGFloat = 28
+    private let concealedTileMaxWidth: CGFloat = 42
+    private let concealedTileSpacing: CGFloat = 4
 
-    // 手牌右侧“功能槽位”固定宽度
-    private let handAccessoryWidth: CGFloat = 56
+    // 暗手操作按钮高度
     private let handAccessoryHeight: CGFloat = 28
 
     private var handColumns: [GridItem] {
         [GridItem(.adaptive(minimum: handChipMinWidth), spacing: handChipSpacing)]
     }
 
-    private var handAreaMinHeight: CGFloat {
-        let rows = CGFloat(reservedRows)
-        return rows * handChipRowHeight + (rows - 1) * handChipSpacing + 8
+    private var concealedHandRowHeight: CGFloat {
+        concealedTileMaxWidth / concealedTileAspectRatio + 8
     }
 
     private var hasTilesInHand: Bool {
         vm.counts34.contains { $0 > 0 }
+    }
+
+    private var concealedHandTiles: [Int] {
+        var tiles: [Int] = []
+        let limit = min(vm.counts34.count, 34)
+        for idx in 0..<limit {
+            let count = vm.counts34[idx]
+            if count > 0 {
+                tiles.append(contentsOf: Array(repeating: idx, count: count))
+            }
+        }
+        return tiles
     }
 
     private func startIndex(for tab: String) -> Int {
@@ -175,25 +204,13 @@ struct NativeMahjongView: View {
 
                     // 关键状态条
                     HStack(spacing: 10) {
-                        Text(mode == .sichuan ? "四川" : "广东")
-                            .font(.headline.weight(.semibold))
-
-                        Text("张数 \(cnt)")
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-
-                        Text("杠 \(k)")
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
+                        statusChip(mode == .sichuan ? "四川" : "广东", isPrimary: true)
+                        statusChip("张数 \(cnt)")
+                        statusChip("杠 \(k)")
 
                         Spacer()
 
-                        Text(vm.autoComputeEnabled ? "自动" : "暂停")
-                            .font(.caption2)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color(.systemGray6))
-                            .clipShape(Capsule())
+                        statusChip(vm.autoComputeEnabled ? "自动" : "暂停")
                     }
 
                     // ✅ 关键：把“副露 + 手牌”合并成一个大框
@@ -216,7 +233,7 @@ struct NativeMahjongView: View {
                             Text("字").tag("z")
                         }
                         .pickerStyle(.segmented)
-                        .onChange(of: vm.selectedTab) { _ in
+                        .onChange(of: vm.selectedTab) { _, _ in
                             if vm.ruleMode == .sichuan && vm.selectedTab == "z" {
                                 vm.selectedTab = "m"
                             }
@@ -245,10 +262,17 @@ struct NativeMahjongView: View {
                             Text("结果")
                                 .font(.headline.weight(.semibold))
                             Spacer()
-                            Button("复制") {
+                            Button {
                                 UIPasteboard.general.string = vm.outputText
+                            } label: {
+                                Text("复制")
+                                    .font(.footnote.weight(.semibold))
+                                    .padding(.horizontal, 10)
+                                    .frame(height: 30)
+                                    .background(Color(.systemGray6))
+                                    .appleClip(AppleCornerRadius.badge)
                             }
-                            .font(.footnote)
+                            .buttonStyle(.plain)
                         }
 
                         Text(vm.outputText)
@@ -257,7 +281,7 @@ struct NativeMahjongView: View {
                             .padding(.vertical, 8)
                             .padding(.horizontal, 10)
                             .background(Color(.systemGray6))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .appleClip(AppleCornerRadius.control)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -269,7 +293,7 @@ struct NativeMahjongView: View {
                     Haptics.warning()
                 }
             }
-            .onChange(of: vm.clearAllNonce) { _ in
+            .onChange(of: vm.clearAllNonce) { _, _ in
                 DispatchQueue.main.async {
                     withAnimation(.easeOut(duration: 0.25)) {
                         proxy.scrollTo(topID, anchor: .top)
@@ -287,12 +311,8 @@ struct NativeMahjongView: View {
                         .toolbar {
                             ToolbarItem(placement: .topBarTrailing) {
                                 HStack(spacing: 14) {
-                                    Button { showScan = true } label: {
-                                        Image(systemName: "camera.viewfinder")
-                                    }
-                                    Button { showSettings = true } label: {
-                                        Image(systemName: "gearshape")
-                                    }
+                                    toolbarIconButton(systemName: "camera.viewfinder") { showScan = true }
+                                    toolbarIconButton(systemName: "gearshape") { showSettings = true }
                                 }
                             }
                         }
@@ -307,12 +327,8 @@ struct NativeMahjongView: View {
                         .toolbar {
                             ToolbarItem(placement: .navigationBarTrailing) {
                                 HStack(spacing: 14) {
-                                    Button { showScan = true } label: {
-                                        Image(systemName: "camera.viewfinder")
-                                    }
-                                    Button { showSettings = true } label: {
-                                        Image(systemName: "gearshape")
-                                    }
+                                    toolbarIconButton(systemName: "camera.viewfinder") { showScan = true }
+                                    toolbarIconButton(systemName: "gearshape") { showSettings = true }
                                 }
                             }
                         }
@@ -358,7 +374,7 @@ struct NativeMahjongView: View {
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(Color(.systemBackground))
-                        .clipShape(Capsule())
+                        .appleClip(AppleCornerRadius.badge)
                 }
             }
 
@@ -376,8 +392,8 @@ struct NativeMahjongView: View {
                         .frame(height: handChipRowHeight)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color(.systemBackground))
-                        .overlay(Capsule().stroke(Color(.systemGray4), lineWidth: 1))
-                        .clipShape(Capsule())
+                        .appleClip(AppleCornerRadius.control)
+                        .appleStroke(Color(.systemGray4), radius: AppleCornerRadius.control)
                 } else {
                     LazyVGrid(columns: handColumns, alignment: .leading, spacing: handChipSpacing) {
                         ForEach(vm.melds) { m in
@@ -401,8 +417,8 @@ struct NativeMahjongView: View {
                                 .frame(height: handChipRowHeight)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(Color(.systemBackground))
-                                .overlay(Capsule().stroke(Color(.systemGray4), lineWidth: 1))
-                                .clipShape(Capsule())
+                                .appleClip(AppleCornerRadius.control)
+                                .appleStroke(Color(.systemGray4), radius: AppleCornerRadius.control)
                             }
                             .buttonStyle(.plain)
                         }
@@ -412,36 +428,35 @@ struct NativeMahjongView: View {
 
             Divider()
 
-            // 手牌区（你原逻辑保留）
+            // 暗手按真实摆牌方式展开成一横排。
             VStack(alignment: .leading, spacing: 8) {
                 Text("暗手")
                     .font(.footnote.weight(.semibold))
                     .foregroundColor(.secondary)
 
-                LazyVGrid(columns: handColumns, alignment: .leading, spacing: handChipSpacing) {
-                    if hasTilesInHand {
-                        ForEach(0..<34, id: \.self) { i in
-                            if vm.counts34[i] > 0 {
-                                handChip(idx: i)
-                            }
-                        }
-                    } else {
-                        Text("点下方牌面录入")
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                            .allowsTightening(true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .frame(height: handChipRowHeight)
-                            .padding(.horizontal, 10)
-                            .background(Color(.systemBackground))
-                            .overlay(Capsule().stroke(Color(.systemGray4), lineWidth: 1))
-                            .clipShape(Capsule())
+                if hasTilesInHand {
+                    let tiles = concealedHandTiles
+                    let actions = concealedHandActions()
+
+                    concealedHandRow(tiles: tiles)
+
+                    if !actions.isEmpty {
+                        concealedActionBar(actions: actions)
                     }
+                } else {
+                    Text("点下方牌面录入")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .allowsTightening(true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: handChipRowHeight)
+                        .padding(.horizontal, 10)
+                        .background(Color(.systemBackground))
+                        .appleClip(AppleCornerRadius.control)
+                        .appleStroke(Color(.systemGray4), radius: AppleCornerRadius.control)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(minHeight: handAreaMinHeight, alignment: .topLeading)
 
                 if !vm.statusText.isEmpty {
                     Text(vm.statusText)
@@ -452,11 +467,143 @@ struct NativeMahjongView: View {
         }
         .padding(12)
         .background(Color(.systemGray6))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color(.systemGray5), lineWidth: 1)
-        )
+        .appleClip(AppleCornerRadius.panel)
+        .appleStroke(Color(.systemGray5), radius: AppleCornerRadius.panel)
+    }
+
+    private func concealedHandRow(tiles: [Int]) -> some View {
+        GeometryReader { proxy in
+            let tileWidth = concealedTileWidth(containerWidth: proxy.size.width, tileCount: tiles.count)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .bottom, spacing: concealedTileSpacing) {
+                    ForEach(tiles.indices, id: \.self) { position in
+                        concealedHandTile(idx: tiles[position], width: tileWidth)
+                    }
+                }
+                .frame(minWidth: proxy.size.width, alignment: .leading)
+                .padding(.vertical, 4)
+            }
+        }
+        .frame(height: concealedHandRowHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func concealedTileWidth(containerWidth: CGFloat, tileCount: Int) -> CGFloat {
+        guard tileCount > 0 else { return concealedTileMaxWidth }
+
+        let spacing = concealedTileSpacing * CGFloat(max(tileCount - 1, 0))
+        let available = max(containerWidth - spacing, 0)
+        let fittingWidth = floor(available / CGFloat(tileCount))
+
+        return min(concealedTileMaxWidth, max(concealedTileMinWidth, fittingWidth))
+    }
+
+    private func concealedHandTile(idx: Int, width: CGFloat) -> some View {
+        let height = width / concealedTileAspectRatio
+        let cornerRadius = max(4, width * 0.14)
+        let fontSize = min(16, max(10, width * 0.38))
+
+        return Button {
+            vm.removeTile(idx: idx)
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color(.systemBackground))
+                    .shadow(color: Color.black.opacity(0.08), radius: 2, x: 0, y: 1)
+
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color(.systemGray4), lineWidth: 1)
+
+                Text(MahjongEngine.tileName34(idx))
+                    .font(.system(size: fontSize, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.62)
+                    .allowsTightening(true)
+                    .padding(.horizontal, 2)
+            }
+            .frame(width: width, height: height)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func concealedHandActions() -> [ConcealedHandAction] {
+        var actions: [ConcealedHandAction] = []
+
+        for idx in 0..<34 {
+            if vm.canAddKong(idx: idx) {
+                actions.append(ConcealedHandAction(tileIndex: idx, kind: .addKong))
+            } else if vm.canAnKong(idx: idx) {
+                actions.append(ConcealedHandAction(tileIndex: idx, kind: .anKong))
+            } else if vm.canMingKong(idx: idx) {
+                actions.append(ConcealedHandAction(tileIndex: idx, kind: .mingKong))
+            } else if vm.canPong(idx: idx) {
+                actions.append(ConcealedHandAction(tileIndex: idx, kind: .pong))
+            }
+        }
+
+        return actions
+    }
+
+    private func concealedActionBar(actions: [ConcealedHandAction]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(actions) { action in
+                    Button {
+                        performConcealedHandAction(action)
+                    } label: {
+                        Text("\(MahjongEngine.tileName34(action.tileIndex)) \(action.kind.rawValue)")
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
+                            .padding(.horizontal, 10)
+                            .frame(height: handAccessoryHeight)
+                            .background(Color(.systemBackground))
+                            .appleClip(AppleCornerRadius.badge)
+                            .appleStroke(Color.accentColor.opacity(0.9),
+                                         radius: AppleCornerRadius.badge)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func performConcealedHandAction(_ action: ConcealedHandAction) {
+        switch action.kind {
+        case .addKong:
+            vm.addKong(idx: action.tileIndex)
+        case .anKong:
+            vm.anKong(idx: action.tileIndex)
+        case .mingKong:
+            vm.mingKong(idx: action.tileIndex)
+        case .pong:
+            vm.pong(idx: action.tileIndex)
+        }
+    }
+
+    private func statusChip(_ title: String, isPrimary: Bool = false) -> some View {
+        Text(title)
+            .font(isPrimary ? .headline.weight(.semibold) : .footnote.weight(.medium))
+            .foregroundColor(isPrimary ? .primary : .secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .padding(.horizontal, isPrimary ? 10 : 8)
+            .frame(height: isPrimary ? 34 : 28)
+            .background(Color(.systemGray6))
+            .appleClip(AppleCornerRadius.badge)
+    }
+
+    private func toolbarIconButton(systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 34, height: 34)
+                .background(Color(.systemGray6))
+                .appleClip(AppleCornerRadius.control)
+        }
+        .buttonStyle(.plain)
     }
 
     private func tileButton(idx: Int) -> some View {
@@ -477,79 +624,14 @@ struct NativeMahjongView: View {
                 .padding(.vertical, 10)
                 .background(Color(.systemBackground))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12)
+                    AppleCornerShape.continuous(AppleCornerRadius.control)
                         .stroke(count > 0 ? Color.accentColor : Color(.systemGray4),
                                 lineWidth: count > 0 ? 2 : 1)
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .appleClip(AppleCornerRadius.control)
             }
         }
         .buttonStyle(.plain)
     }
 
-    private func handChip(idx: Int) -> some View {
-        let count = vm.counts34[idx]
-        let name = MahjongEngine.tileName34(idx)
-
-        let canAdd = vm.canAddKong(idx: idx)
-        let canAn = vm.canAnKong(idx: idx)
-        let canMing = vm.canMingKong(idx: idx)
-        let canPong = vm.canPong(idx: idx)
-
-        return ZStack(alignment: .trailing) {
-
-            // 整条大胶囊：点击默认执行“减一张”
-            Button {
-                vm.removeTile(idx: idx)
-            } label: {
-                HStack(spacing: 10) {
-                    Text(name)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-
-                    Spacer(minLength: 8)
-
-                    Text("×\(count)")
-                        .font(.subheadline.monospacedDigit())
-                        .foregroundColor(.secondary)
-                }
-                .padding(.leading, 12)
-                // 关键：给右侧动作预留空间，让动作“嵌在同一个胶囊里”
-                .padding(.trailing, handAccessoryWidth + 12)
-                .frame(height: handChipRowHeight)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.systemBackground))
-                .overlay(Capsule().stroke(Color(.systemGray4), lineWidth: 1))
-                .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-
-            // 右侧动作：叠在同一个胶囊里（不是另起一个框）
-            Group {
-                if canAdd {
-                    Button { vm.addKong(idx: idx) } label: { actionPill("加杠") }
-                } else if canAn {
-                    Button { vm.anKong(idx: idx) } label: { actionPill("暗杠") }
-                } else if canMing {
-                    Button { vm.mingKong(idx: idx) } label: { actionPill("杠") }
-                } else if canPong {
-                    Button { vm.pong(idx: idx) } label: { actionPill("碰") }
-                } else {
-                    EmptyView()
-                }
-            }
-            .padding(.trailing, 8)
-        }
-    }
-
-    private func actionPill(_ title: String) -> some View {
-        Text(title)
-            .font(.caption2.weight(.semibold))
-            .frame(width: handAccessoryWidth, height: handAccessoryHeight, alignment: .center)
-            // 这里故意不做“独立大背景”，只做边框胶囊，让它看起来像嵌在大胶囊内部
-            .background(Color(.systemBackground))
-            .overlay(Capsule().stroke(Color.accentColor.opacity(0.9), lineWidth: 1))
-            .clipShape(Capsule())
-    }
 }
