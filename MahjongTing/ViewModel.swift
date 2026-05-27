@@ -4,23 +4,24 @@ import Combine
 final class MahjongViewModel: ObservableObject {
 
     private static let hapticsKey: String = "hapticsEnabled"
-    private static let scanDepthKey: String = "scanDepthEnabled"
-    private static let scanCollectKey: String = "scanCollectSamplesEnabled"
 
     @Published var hapticsEnabled: Bool {
         didSet { UserDefaults.standard.set(hapticsEnabled, forKey: Self.hapticsKey) }
     }
-    @Published var scanDepthEnabled: Bool {
-        didSet { UserDefaults.standard.set(scanDepthEnabled, forKey: Self.scanDepthKey) }
-    }
-    @Published var scanCollectSamplesEnabled: Bool {
-        didSet { UserDefaults.standard.set(scanCollectSamplesEnabled, forKey: Self.scanCollectKey) }
+
+    @Published var language: AppLanguage {
+        didSet {
+            if language == oldValue { return }
+            AppLanguage.save(language)
+            refreshTextForLanguageChange()
+        }
     }
 
     init() {
+        let initialLanguage = AppLanguage.savedOrPreferred()
         self.hapticsEnabled = UserDefaults.standard.object(forKey: Self.hapticsKey) as? Bool ?? true
-        self.scanDepthEnabled = UserDefaults.standard.object(forKey: Self.scanDepthKey) as? Bool ?? true
-        self.scanCollectSamplesEnabled = UserDefaults.standard.object(forKey: Self.scanCollectKey) as? Bool ?? false
+        self.language = initialLanguage
+        self.outputText = AppText.initialOutput(initialLanguage)
     }
 
     @Published var clearAllNonce: Int = 0
@@ -36,12 +37,9 @@ final class MahjongViewModel: ObservableObject {
     @Published var selectedTab: String = "m" // m/p/s/z
     @Published var counts34: [Int] = Array(repeating: 0, count: 34)
 
-    // ✅ 方案B：副露（碰/杠）单独存
     @Published var melds: [Meld] = []
-    // ⚠️ 兼容旧 Scan/UI 代码：不再参与方案B计算（真实杠以 melds 为准）
-    @Published var kongedTiles: Set<Int> = []
 
-    @Published var outputText: String = "请点牌录入 13/14 张（不含花）。满足张数后会自动计算；可用“停止计算”暂停。"
+    @Published var outputText: String
     @Published var statusText: String = ""
 
     // MARK: - Mode
@@ -51,7 +49,6 @@ final class MahjongViewModel: ObservableObject {
         return (ruleMode == .sichuan) ? 27 : 34
     }
 
-    /// 方案B下：自动模式判定要同时看暗手 + 副露
     private func resolvedMode(concealed: [Int], melds: [Meld]) -> MahjongRuleMode {
         switch ruleMode {
         case .sichuan:
@@ -89,7 +86,7 @@ final class MahjongViewModel: ObservableObject {
         return effectiveTileLimit(mode: resolveMode())
     }
 
-    // MARK: - Helpers (副露/占用)
+    // MARK: - Helpers
 
     private func ownedCount(tile idx: Int, concealed: [Int], melds: [Meld], limit: Int) -> Int {
         if idx < 0 || idx >= limit { return 0 }
@@ -120,7 +117,7 @@ final class MahjongViewModel: ObservableObject {
         let limit = effectiveTileLimit(mode: mode)
 
         if melds.count > 4 {
-            return "副露面子最多 4 组（碰/杠合计）。"
+            return AppText.maxMeldsError(language)
         }
 
         var total = 0
@@ -134,18 +131,18 @@ final class MahjongViewModel: ObservableObject {
         }
 
         if kongCount > 4 {
-            return "最多只能有 4 个杠。"
+            return AppText.maxKongsError(language)
         }
 
         let maxTotal = 14 + kongCount
         if total > maxTotal {
-            return "当前杠数为 \(kongCount)，最多只能输入 \(maxTotal) 张（14+\(kongCount)）。"
+            return AppText.maxTilesError(kongCount: kongCount, maxTotal: maxTotal, language: language)
         }
 
         for i in 0..<limit {
             let oc = ownedCount(tile: i, concealed: concealed, melds: melds, limit: limit)
             if oc > 4 {
-                return "\(MahjongEngine.tileName34(i)) 超过 4 张（暗手+副露合计）。"
+                return AppText.tileExceededError(tile: MahjongEngine.tileName34(i, language: language), language: language)
             }
         }
 
@@ -159,6 +156,15 @@ final class MahjongViewModel: ObservableObject {
             return false
         }
         return true
+    }
+
+    private func refreshTextForLanguageChange() {
+        statusText = ""
+        if counts34.allSatisfy({ $0 == 0 }) && melds.isEmpty {
+            outputText = AppText.initialOutput(language)
+            return
+        }
+        compute()
     }
 
 
@@ -194,12 +200,6 @@ final class MahjongViewModel: ObservableObject {
         return melds.count
     }
 
-    // MARK: - Count (兼容保留)
-
-    func handCount() -> Int {
-        return counts34.reduce(0, +)
-    }
-
     // MARK: - Actions：加牌/减牌（暗手）
 
     func addTile(idx: Int) {
@@ -210,7 +210,7 @@ final class MahjongViewModel: ObservableObject {
 
         // 只有明确四川才禁字牌
         if ruleMode == .sichuan, idx >= 27 {
-            statusText = "四川麻将通常不使用字牌。请切换为广东或自动。"
+            statusText = AppText.sichuanNoHonors(language)
             if hapticsEnabled { Haptics.error() }
             return
         }
@@ -263,7 +263,7 @@ final class MahjongViewModel: ObservableObject {
     /// - clearMelds: true 表示扫描即“重来”（清空副露）；false 表示保留你手动录入的副露
     func applyScannedConcealedCounts(_ newCounts34: [Int], clearMelds: Bool = false) {
         if newCounts34.count < 34 {
-            statusText = "扫描结果不完整（counts34 长度不足 34）。"
+            statusText = AppText.scanCountsIncomplete(language)
             if hapticsEnabled { Haptics.error() }
             return
         }
@@ -314,23 +314,12 @@ final class MahjongViewModel: ObservableObject {
             melds = tmpMelds
         }
 
-        // 兼容旧 Scan 扩展：扫描后先清空旧 kongedTiles（方案B不再用它）
-        kongedTiles.removeAll()
-
         statusText = ""
         if hapticsEnabled { Haptics.light() }
         autoComputeIfNeeded()
     }
-    // MARK: - Legacy Compatibility (旧“杠”按钮语义：按明杠处理)
-    func canGang(idx: Int) -> Bool {
-        return canMingKong(idx: idx)
-    }
 
-    func gang(idx: Int) {
-        mingKong(idx: idx)
-    }
-
-    // MARK: - Actions：碰/杠（方案B）
+    // MARK: - Actions：碰/杠
 
     func canPong(idx: Int) -> Bool {
         if idx < 0 || idx >= inputTileLimit() { return false }
@@ -501,10 +490,9 @@ final class MahjongViewModel: ObservableObject {
     func clearAll() {
         counts34 = Array(repeating: 0, count: 34)
         melds.removeAll()
-        kongedTiles.removeAll()
 
         statusText = ""
-        outputText = "已清空。请点牌录入 13/14 张（不含花）。满足张数后会自动计算。"
+        outputText = AppText.clearedOutput(language)
 
         clearAllNonce += 1
         autoComputeIfNeeded()
@@ -559,10 +547,8 @@ final class MahjongViewModel: ObservableObject {
 
         let limit = effectiveTileLimit(mode: mode)
 
-        // ✅ 方案B：引擎只拆“暗手”
         let concealed: [Int] = Array(counts34[0..<limit])
 
-        // ✅ 副露占用：用 extras 传给引擎做校验/跳过（>=4 不再作为听牌）
         let meldExtras = meldExtrasArray(limit: limit)
         let fixedMeldCount = fixedMeldCountEffective()
 
@@ -574,17 +560,20 @@ final class MahjongViewModel: ObservableObject {
         if mode == .sichuan {
             let dqText: String
             if let dq = dq {
-                switch dq {
-                case .m: dqText = "万"
-                case .p: dqText = "筒"
-                case .s: dqText = "条"
-                }
+                dqText = dq.choiceName(language: language)
             } else {
-                dqText = "未设置"
+                dqText = AppText.notSet(language)
             }
-            lines.append("规则：四川  定缺：\(dqText)  有效张数：\(cnt)  杠：\(k)  副露：\(fixedMeldCount)")
+            lines.append(AppText.summarySichuan(dingque: dqText,
+                                                tileCount: cnt,
+                                                kongCount: k,
+                                                meldCount: fixedMeldCount,
+                                                language: language))
         } else {
-            lines.append("规则：广东  有效张数：\(cnt)  杠：\(k)  副露：\(fixedMeldCount)")
+            lines.append(AppText.summaryGuangdong(tileCount: cnt,
+                                                  kongCount: k,
+                                                  meldCount: fixedMeldCount,
+                                                  language: language))
         }
 
         if cnt == 13 + k {
@@ -599,13 +588,13 @@ final class MahjongViewModel: ObservableObject {
             )
 
             lines.append("")
-            lines.append("【\(13 + k) 张】听牌列表：")
+            lines.append(AppText.waitListTitle(tileCount: 13 + k, language: language))
 
             if waits.isEmpty {
-                lines.append("未找到可胡牌（当前不听牌）。")
+                lines.append(AppText.noWaits(language))
             } else {
-                let names = waits.map { MahjongEngine.tileName34($0) }.joined(separator: "、")
-                lines.append("听 \(waits.count) 种：\(names)")
+                let names = waits.map { MahjongEngine.tileName34($0, language: language) }.joined(separator: AppText.listSeparator(language))
+                lines.append(AppText.waits(count: waits.count, names: names, language: language))
             }
 
         } else if cnt == 14 + k {
@@ -621,12 +610,12 @@ final class MahjongViewModel: ObservableObject {
             )
 
             if alreadyWin {
-                lines.append("【\(14 + k) 张】当前牌型：已胡牌。")
+                lines.append(AppText.alreadyWinning(tileCount: 14 + k, language: language))
                 outputText = lines.joined(separator: "\n")
                 return
             }
 
-            lines.append("【\(14 + k) 张】当前未胡牌：请先打出 1 张查看听牌。")
+            lines.append(AppText.discardToSeeWaits(tileCount: 14 + k, language: language))
 
             let suggestions = MahjongEngine.calcSuggestionsWithMelds(
                 concealed: concealed,
@@ -640,12 +629,12 @@ final class MahjongViewModel: ObservableObject {
             )
 
             if suggestions.isEmpty {
-                lines.append("当前排列不能胡牌（打出任意一张也无法进入听牌）。")
+                lines.append(AppText.noSuggestions(language))
             } else {
                 for s in suggestions {
-                    let dname = MahjongEngine.tileName34(s.discard)
-                    let waits = s.waits.map { MahjongEngine.tileName34($0) }.joined(separator: " ")
-                    lines.append("打 \(dname) -> 听 \(waits)")
+                    let dname = MahjongEngine.tileName34(s.discard, language: language)
+                    let waits = s.waits.map { MahjongEngine.tileName34($0, language: language) }.joined(separator: " ")
+                    lines.append(AppText.discardSuggestion(discard: dname, waits: waits, language: language))
                 }
             }
 
@@ -654,11 +643,10 @@ final class MahjongViewModel: ObservableObject {
 
         } else {
             lines.append("")
-            lines.append("张数不满足：当前有效 \(cnt) 张，杠 \(k) 次。")
-            lines.append("需要 \(13 + k)（听牌态）或 \(14 + k)（抓牌态）。")
+            lines.append(AppText.invalidCount(current: cnt, kongCount: k, language: language))
+            lines.append(AppText.requiredCounts(waitCount: 13 + k, drawCount: 14 + k, language: language))
         }
 
         outputText = lines.joined(separator: "\n")
     }
 }
-

@@ -1,14 +1,15 @@
 import SwiftUI
 import UIKit
-import ARKit
 
 private enum SessionOnce {
     static var didShowBrandBanner: Bool = false
 }
 
 private struct BrandBanner: View {
+    let language: AppLanguage
+
     var body: some View {
-        Text("麻将听牌助手")
+        Text(AppText.appTitle(language))
             .font(.footnote.weight(.semibold))
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -19,11 +20,11 @@ private struct BrandBanner: View {
     }
 }
 
-private enum ConcealedHandActionKind: String {
-    case addKong = "加杠"
-    case anKong = "暗杠"
-    case mingKong = "杠"
-    case pong = "碰"
+enum ConcealedHandActionKind: String {
+    case addKong
+    case anKong
+    case mingKong
+    case pong
 }
 
 private struct ConcealedHandAction: Identifiable {
@@ -39,11 +40,6 @@ private struct SettingsSheet: View {
     @ObservedObject var vm: MahjongViewModel
     @Binding var isPresented: Bool
 
-    private var supportsSceneDepth: Bool {
-        ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) ||
-        ARWorldTrackingConfiguration.supportsFrameSemantics(.smoothedSceneDepth)
-    }
-
     private var modeResolved: MahjongRuleMode { vm.resolveMode() }
 
     private var canToggleAuto: Bool {
@@ -54,10 +50,18 @@ private struct SettingsSheet: View {
 
     var body: some View {
         let form = Form {
-            Section("规则") {
-                Picker("规则", selection: $vm.ruleMode) {
+            Section(AppText.languageTitle(vm.language)) {
+                Picker(AppText.languageTitle(vm.language), selection: $vm.language) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.displayName).tag(language)
+                    }
+                }
+            }
+
+            Section(AppText.rulesTitle(vm.language)) {
+                Picker(AppText.rulesTitle(vm.language), selection: $vm.ruleMode) {
                     ForEach(MahjongRuleMode.allCases) { m in
-                        Text(m.displayName).tag(m)
+                        Text(m.displayName(language: vm.language)).tag(m)
                     }
                 }
                 .onChange(of: vm.ruleMode) { _, _ in
@@ -69,56 +73,42 @@ private struct SettingsSheet: View {
             }
 
             if modeResolved == .sichuan {
-                Section("四川定缺") {
-                    Picker("定缺", selection: $vm.dingque) {
-                        Text("不设置").tag(nil as Suit?)
-                        Text("万").tag(Suit.m as Suit?)
-                        Text("筒").tag(Suit.p as Suit?)
-                        Text("条").tag(Suit.s as Suit?)
+                Section(AppText.dingqueTitle(vm.language)) {
+                    Picker(AppText.dingquePickerTitle(vm.language), selection: $vm.dingque) {
+                        Text(AppText.notSet(vm.language)).tag(nil as Suit?)
+                        Text(Suit.m.choiceName(language: vm.language)).tag(Suit.m as Suit?)
+                        Text(Suit.p.choiceName(language: vm.language)).tag(Suit.p as Suit?)
+                        Text(Suit.s.choiceName(language: vm.language)).tag(Suit.s as Suit?)
                     }
                 }
             }
 
-            Section("胡牌选项") {
-                Toggle("七对", isOn: $vm.enableQiDui)
+            Section(AppText.winningOptionsTitle(vm.language)) {
+                Toggle(AppText.sevenPairs(vm.language), isOn: $vm.enableQiDui)
 
-                Toggle("十三幺（仅广东）", isOn: $vm.enable13yao)
+                Toggle(AppText.thirteenOrphansGuangdongOnly(vm.language), isOn: $vm.enable13yao)
                     .disabled(modeResolved != .guangdong)
                     .opacity(modeResolved != .guangdong ? 0.35 : 1.0)
             }
 
-            Section("反馈") {
-                Toggle("震动反馈", isOn: $vm.hapticsEnabled)
+            Section(AppText.feedbackTitle(vm.language)) {
+                Toggle(AppText.haptics(vm.language), isOn: $vm.hapticsEnabled)
             }
 
-            Section("扫描") {
-                Toggle("深度增强（LiDAR/深度）", isOn: $vm.scanDepthEnabled)
-                    .disabled(!supportsSceneDepth)
-                    .opacity(!supportsSceneDepth ? 0.35 : 1.0)
-
-                Toggle("保存识别样本（本地）", isOn: $vm.scanCollectSamplesEnabled)
-
-                if !supportsSceneDepth {
-                    Text("本设备不支持深度语义，将自动使用纯相机识别。")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            Section("计算") {
-                Button(vm.autoComputeEnabled ? "停止计算" : "开始计算") {
+            Section(AppText.computeTitle(vm.language)) {
+                Button(vm.autoComputeEnabled ? AppText.stopCompute(vm.language) : AppText.startCompute(vm.language)) {
                     vm.toggleAutoCompute()
                 }
                 .disabled(!canToggleAuto)
                 .opacity(!canToggleAuto ? 0.35 : 1.0)
             }
 
-            Section("数据") {
+            Section(AppText.dataTitle(vm.language)) {
                 Button(role: .destructive) {
                     vm.clearAll()
                     isPresented = false
                 } label: {
-                    Text("清空手牌")
+                    Text(AppText.clearHand(vm.language))
                 }
             }
         }
@@ -130,12 +120,12 @@ private struct SettingsSheet: View {
                 NavigationView { form }
             }
         }
-        .navigationTitle("设置")
+        .navigationTitle(AppText.settingsTitle(vm.language))
         .navigationBarTitleDisplayMode(.inline)
     }
 }
 
-struct NativeMahjongView: View {
+struct MainView: View {
     @State private var showScan: Bool = false
     @State private var showSettings: Bool = false
     @State private var showBrand: Bool = !SessionOnce.didShowBrandBanner
@@ -144,7 +134,6 @@ struct NativeMahjongView: View {
     private let columns9: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
     private let columns7: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 10), count: 4)
 
-    // === 手牌区布局参数 ===
     private let handChipMinWidth: CGFloat = 150
     private let handChipRowHeight: CGFloat = 44
     private let handChipSpacing: CGFloat = 10
@@ -153,7 +142,6 @@ struct NativeMahjongView: View {
     private let concealedTileMaxWidth: CGFloat = 42
     private let concealedTileSpacing: CGFloat = 4
 
-    // 暗手操作按钮高度
     private let handAccessoryHeight: CGFloat = 28
 
     private var handColumns: [GridItem] {
@@ -202,35 +190,32 @@ struct NativeMahjongView: View {
                         .id(topID)
                         .allowsHitTesting(false)
 
-                    // 关键状态条
                     HStack(spacing: 10) {
-                        statusChip(mode == .sichuan ? "四川" : "广东", isPrimary: true)
-                        statusChip("张数 \(cnt)")
-                        statusChip("杠 \(k)")
+                        statusChip(mode.displayName(language: vm.language), isPrimary: true)
+                        statusChip(AppText.tileCount(cnt, language: vm.language))
+                        statusChip(AppText.kongCount(k, language: vm.language))
 
                         Spacer()
 
-                        statusChip(vm.autoComputeEnabled ? "自动" : "暂停")
+                        statusChip(AppText.autoStatus(vm.autoComputeEnabled, language: vm.language))
                     }
 
-                    // ✅ 关键：把“副露 + 手牌”合并成一个大框
                     handPanel()
 
                     Divider()
 
-                    // 点牌区
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text("点牌")
+                            Text(AppText.tileEntryTitle(vm.language))
                                 .font(.footnote.weight(.semibold))
                             Spacer()
                         }
 
-                        Picker("类别", selection: $vm.selectedTab) {
-                            Text("萬").tag("m")
-                            Text("茼").tag("p")
-                            Text("條").tag("s")
-                            Text("字").tag("z")
+                        Picker(AppText.categoryTitle(vm.language), selection: $vm.selectedTab) {
+                            Text(AppText.suitTabName(.m, language: vm.language)).tag("m")
+                            Text(AppText.suitTabName(.p, language: vm.language)).tag("p")
+                            Text(AppText.suitTabName(.s, language: vm.language)).tag("s")
+                            Text(AppText.honorsTabName(vm.language)).tag("z")
                         }
                         .pickerStyle(.segmented)
                         .onChange(of: vm.selectedTab) { _, _ in
@@ -256,16 +241,15 @@ struct NativeMahjongView: View {
 
                     Divider()
 
-                    // 结果区
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text("结果")
+                            Text(AppText.resultTitle(vm.language))
                                 .font(.headline.weight(.semibold))
                             Spacer()
                             Button {
                                 UIPasteboard.general.string = vm.outputText
                             } label: {
-                                Text("复制")
+                                Text(AppText.copy(vm.language))
                                     .font(.footnote.weight(.semibold))
                                     .padding(.horizontal, 10)
                                     .frame(height: 30)
@@ -317,7 +301,7 @@ struct NativeMahjongView: View {
                             }
                         }
                         .sheet(isPresented: $showScan) {
-                            TileScanSheet(vm: vm)
+                            ScanSheet(vm: vm)
                         }
                 }
             } else {
@@ -333,7 +317,7 @@ struct NativeMahjongView: View {
                             }
                         }
                         .sheet(isPresented: $showScan) {
-                            TileScanSheet(vm: vm)
+                            ScanSheet(vm: vm)
                         }
                 }
             }
@@ -343,7 +327,7 @@ struct NativeMahjongView: View {
         }
         .overlay(alignment: .top) {
             if showBrand {
-                BrandBanner()
+                BrandBanner(language: vm.language)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
@@ -359,17 +343,15 @@ struct NativeMahjongView: View {
         }
     }
 
-    // ✅ 新增：统一的“手牌大框面板”（副露 + 手牌在同一个外框里）
     private func handPanel() -> some View {
         VStack(alignment: .leading, spacing: 10) {
 
-            // 标题行
             HStack(spacing: 10) {
-                Text("手牌")
+                Text(AppText.handTitle(vm.language))
                     .font(.headline.weight(.semibold))
                 Spacer()
                 if !vm.melds.isEmpty {
-                    Text("副露 \(vm.melds.count)")
+                    Text(AppText.meldCount(vm.melds.count, language: vm.language))
                         .font(.caption2)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -378,14 +360,13 @@ struct NativeMahjongView: View {
                 }
             }
 
-            // 副露区：永远占位，不再“消失”
             VStack(alignment: .leading, spacing: 8) {
-                Text("副露")
+                Text(AppText.meldsTitle(vm.language))
                     .font(.footnote.weight(.semibold))
                     .foregroundColor(.secondary)
 
                 if vm.melds.isEmpty {
-                    Text("暂无副露（碰/杠后会显示在这里）")
+                    Text(AppText.noMelds(vm.language))
                         .font(.footnote)
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 10)
@@ -400,9 +381,9 @@ struct NativeMahjongView: View {
                             Button {
                                 vm.removeMeld(id: m.id)
                             } label: {
-                                let name = MahjongEngine.tileName34(m.tileIndex)
+                                let name = MahjongEngine.tileName34(m.tileIndex, language: vm.language)
                                 HStack(spacing: 10) {
-                                    Text("\(m.displayName) \(name)")
+                                    Text("\(m.displayName(language: vm.language)) \(name)")
                                         .font(.subheadline.weight(.semibold))
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.75)
@@ -428,9 +409,8 @@ struct NativeMahjongView: View {
 
             Divider()
 
-            // 暗手按真实摆牌方式展开成一横排。
             VStack(alignment: .leading, spacing: 8) {
-                Text("暗手")
+                Text(AppText.concealedTitle(vm.language))
                     .font(.footnote.weight(.semibold))
                     .foregroundColor(.secondary)
 
@@ -444,7 +424,7 @@ struct NativeMahjongView: View {
                         concealedActionBar(actions: actions)
                     }
                 } else {
-                    Text("点下方牌面录入")
+                    Text(AppText.tapTilesHint(vm.language))
                         .font(.footnote)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
@@ -515,7 +495,7 @@ struct NativeMahjongView: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(Color(.systemGray4), lineWidth: 1)
 
-                Text(MahjongEngine.tileName34(idx))
+                Text(MahjongEngine.tileName34(idx, language: vm.language))
                     .font(.system(size: fontSize, weight: .semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.62)
@@ -552,7 +532,7 @@ struct NativeMahjongView: View {
                     Button {
                         performConcealedHandAction(action)
                     } label: {
-                        Text("\(MahjongEngine.tileName34(action.tileIndex)) \(action.kind.rawValue)")
+                        Text("\(MahjongEngine.tileName34(action.tileIndex, language: vm.language)) \(AppText.concealedActionName(action.kind, language: vm.language))")
                             .font(.caption.weight(.semibold))
                             .lineLimit(1)
                             .padding(.horizontal, 10)
@@ -614,7 +594,7 @@ struct NativeMahjongView: View {
         } label: {
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: 6) {
-                    Text(MahjongEngine.tileName34(idx))
+                    Text(MahjongEngine.tileName34(idx, language: vm.language))
                         .font(.headline)
                         .lineLimit(1)
                         .minimumScaleFactor(0.65)

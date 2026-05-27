@@ -1,38 +1,23 @@
 import SwiftUI
-import RealityKit
-import ARKit
-import CoreImage
-import ImageIO
 import UIKit
 
-protocol TileRecognizerProtocol {
-    func recognize(snapshots: [ARFrameSnapshot]) async throws -> [Int]
-}
-
-struct StubTileRecognizer: TileRecognizerProtocol {
-    func recognize(snapshots: [ARFrameSnapshot]) async throws -> [Int] {
-        return []
-    }
-}
-
-struct TileScanSheet: View {
+struct ScanSheet: View {
     @ObservedObject var vm: MahjongViewModel
 
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var manager: AVCaptureTileScanManager = AVCaptureTileScanManager()
+    @StateObject private var manager: CameraManager = CameraManager()
 
-    private let recognizer = VisionCoreMLYOLODetectorRecognizer(modelName: "best")
+    private let recognizer = TileRecognizer(modelName: "TileModel")
 
-    @State private var message: String = "将手牌放入画面中，点击“扫描”。系统会自动识别牌区域。"
+    @State private var message: String = ""
     @State private var isBusy: Bool = false
 
-    /// 自动识别出的整排手牌区域（归一化坐标，原点在左下）
     @State private var autoDetectedRowRect: CGRect? = nil
     @State private var deviceOrientation: UIDeviceOrientation = UIDevice.current.orientation
 
     var body: some View {
         ZStack {
-            AVCapturePreviewContainer(manager: manager)
+            CameraPreview(manager: manager)
                 .ignoresSafeArea()
 
             GuideOverlay(normalizedRect: autoDetectedRowRect,
@@ -40,7 +25,7 @@ struct TileScanSheet: View {
 
             VStack(spacing: 10) {
                 HStack {
-                    Button("取消") {
+                    Button(AppText.cancel(vm.language)) {
                         dismiss()
                     }
                     .padding(.horizontal, 12)
@@ -50,7 +35,7 @@ struct TileScanSheet: View {
 
                     Spacer()
 
-                    Button(isBusy ? "处理中…" : "扫描") {
+                    Button(isBusy ? AppText.processing(vm.language) : AppText.scan(vm.language)) {
                         startScan()
                     }
                     .disabled(isBusy)
@@ -75,6 +60,7 @@ struct TileScanSheet: View {
             }
         }
         .onAppear {
+            message = AppText.scanInstruction(vm.language)
             lockScanInterfaceOrientation()
             UIDevice.current.beginGeneratingDeviceOrientationNotifications()
             updateDeviceOrientation(UIDevice.current.orientation)
@@ -84,7 +70,7 @@ struct TileScanSheet: View {
                     manager.startSession()
                 } else {
                     manager.stopSession()
-                    message = "相机权限未开启。请在系统设置中允许本 App 使用相机。"
+                    message = AppText.cameraPermissionDenied(vm.language)
                 }
             }
         }
@@ -97,6 +83,11 @@ struct TileScanSheet: View {
             updateDeviceOrientation(UIDevice.current.orientation)
         }
         .onReceive(manager.$state, perform: handleStateChange)
+        .onChange(of: vm.language) { _, _ in
+            if !isBusy {
+                message = AppText.scanInstruction(vm.language)
+            }
+        }
     }
 
     private func lockScanInterfaceOrientation() {
@@ -119,21 +110,21 @@ struct TileScanSheet: View {
 
     private func startScan() {
         guard case .running = manager.state else {
-            message = "相机尚未就绪，请稍等。"
+            message = AppText.cameraNotReady(vm.language)
             return
         }
 
         isBusy = true
         autoDetectedRowRect = nil
-        message = "扫描中…"
+        message = AppText.scanning(vm.language)
 
         manager.captureBurst(targetCount: 8, interval: 0.16)
     }
 
-    private func handleStateChange(_ state: TileScanState) {
+    private func handleStateChange(_ state: ScanState) {
         switch state {
         case .captured(let count):
-            message = "已捕获 \(count) 帧，处理中…"
+            message = AppText.capturedFrames(count, language: vm.language)
 
             Task {
                 do {
@@ -143,17 +134,16 @@ struct TileScanSheet: View {
                         self.autoDetectedRowRect = result.normalizedRowRect
 
                         if result.ids.isEmpty {
-                            self.message = "识别模型尚未接入（当前返回空结果）。"
+                            self.message = AppText.recognizerReturnedEmpty(vm.language)
                             self.isBusy = false
                             manager.readyForNextCapture()
                             return
                         }
 
                         self.vm.replaceHandFromScan(tiles: result.ids)
-                        self.message = "识别完成"
+                        self.message = AppText.recognitionDone(vm.language)
                         self.isBusy = false
 
-                        // 给用户一个很短的可见时间，能看到自动识别框
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                             dismiss()
                         }
@@ -161,7 +151,8 @@ struct TileScanSheet: View {
                 } catch {
                     await MainActor.run {
                         self.autoDetectedRowRect = nil
-                        self.message = "识别失败：\(error.localizedDescription)（请重拍）"
+                        self.message = AppText.recognitionFailed(localizedRecognizerError(error),
+                                                                 language: vm.language)
                         self.isBusy = false
                         manager.readyForNextCapture()
                     }
@@ -169,7 +160,8 @@ struct TileScanSheet: View {
             }
 
         case .failed(let msg):
-            message = "错误：\(msg)"
+            message = AppText.scanError(CameraFailureMessage.localized(msg, language: vm.language),
+                                        language: vm.language)
             isBusy = false
             autoDetectedRowRect = nil
 
@@ -177,19 +169,13 @@ struct TileScanSheet: View {
             break
         }
     }
-}
 
-private struct ARPreviewContainer: UIViewRepresentable {
-    @ObservedObject var manager: TileScanManager
-
-    func makeUIView(context: Context) -> ARView {
-        let view = ARView(frame: .zero)
-        view.automaticallyConfigureSession = false
-        manager.attach(session: view.session)
-        return view
+    private func localizedRecognizerError(_ error: Error) -> String {
+        if let recognizerError = error as? YOLOTileRecognizerError {
+            return recognizerError.message(language: vm.language)
+        }
+        return error.localizedDescription
     }
-
-    func updateUIView(_ uiView: ARView, context: Context) {}
 }
 
 private struct GuideOverlay: View {
@@ -205,7 +191,6 @@ private struct GuideOverlay: View {
                rect.width > 0,
                rect.height > 0 {
 
-                // Vision / CoreImage 归一化坐标原点在左下
                 let x = rect.minX * screenWidth
                 let y = (1.0 - rect.maxY) * screenHeight
                 let w = rect.width * screenWidth
@@ -217,7 +202,6 @@ private struct GuideOverlay: View {
                     .position(x: x + w / 2.0, y: y + h / 2.0)
                     .shadow(radius: 6)
             } else {
-                // 未识别到时，保留一个较弱的默认提示框
                 let scanFrame = defaultScanFrame(screenWidth: screenWidth,
                                                  screenHeight: screenHeight)
 

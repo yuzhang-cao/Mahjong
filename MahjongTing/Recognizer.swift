@@ -1,10 +1,3 @@
-//
-//  VisionCoreMLYOLODetectorRecognizer.swift
-//  MahjongTing
-//
-//  Created by caoyuzhang on 3/18/26.
-//
-
 import Foundation
 @preconcurrency import Vision
 import CoreML
@@ -17,18 +10,43 @@ enum YOLOTileRecognizerError: LocalizedError {
     case insufficientDetections(found: Int)
 
     var errorDescription: String? {
+        message(language: .zh)
+    }
+
+    func message(language: AppLanguage) -> String {
         switch self {
         case .modelMissing(let name):
-            return "未找到检测模型：\(name).mlmodelc（请确认 best.mlpackage 已加入 Xcode 且勾选 Target Membership）"
+            switch language {
+            case .zh:
+                return "未找到检测模型：\(name).mlmodelc（请确认模型已加入 Xcode 且勾选 Target Membership）"
+            case .en:
+                return "Detection model not found: \(name).mlmodelc. Confirm the model is included in Xcode and target membership is enabled."
+            case .ja:
+                return "検出モデルが見つかりません：\(name).mlmodelc。Xcode に追加され、Target Membership が有効か確認してください。"
+            }
         case .noDetections:
-            return "没有检测到麻将牌，请调整拍摄角度、距离和光照后重试。"
+            switch language {
+            case .zh:
+                return "没有检测到麻将牌，请调整拍摄角度、距离和光照后重试。"
+            case .en:
+                return "No mahjong tiles were detected. Adjust the angle, distance, and lighting, then try again."
+            case .ja:
+                return "麻雀牌を検出できませんでした。角度、距離、明るさを調整して再試行してください。"
+            }
         case .insufficientDetections(let found):
-            return "检测到的牌数不足（\(found) 张），请确保一排摆放在框内后重试。"
+            switch language {
+            case .zh:
+                return "检测到的牌数不足（\(found) 张），请确保一排摆放在框内后重试。"
+            case .en:
+                return "Not enough tiles detected (\(found)). Place one row inside the frame and try again."
+            case .ja:
+                return "検出された牌が不足しています（\(found) 枚）。一列に並べて枠内に入れてから再試行してください。"
+            }
         }
     }
 }
 
-final class VisionCoreMLYOLODetectorRecognizer: TileRecognizerProtocol {
+final class TileRecognizer: TileRecognizerProtocol {
 
     struct OverlayResult {
         let ids: [Int]
@@ -49,7 +67,7 @@ final class VisionCoreMLYOLODetectorRecognizer: TileRecognizerProtocol {
     private let minConfidence: Float = 0.20
     private let nmsIoUThreshold: CGFloat = 0.45
 
-    init(modelName: String = "best") {
+    init(modelName: String = "TileModel") {
         self.modelName = modelName
 
         guard let url = Bundle.main.url(forResource: modelName, withExtension: "mlmodelc") else {
@@ -65,7 +83,7 @@ final class VisionCoreMLYOLODetectorRecognizer: TileRecognizerProtocol {
         }
     }
 
-    func recognize(snapshots: [ARFrameSnapshot]) async throws -> [Int] {
+    func recognize(snapshots: [FrameSnapshot]) async throws -> [Int] {
         guard !snapshots.isEmpty else {
             throw YOLOTileRecognizerError.insufficientDetections(found: 0)
         }
@@ -77,7 +95,7 @@ final class VisionCoreMLYOLODetectorRecognizer: TileRecognizerProtocol {
         return result.ids
     }
 
-    func recognizeWithOverlay(snapshots: [ARFrameSnapshot]) async throws -> OverlayResult {
+    func recognizeWithOverlay(snapshots: [FrameSnapshot]) async throws -> OverlayResult {
         guard !snapshots.isEmpty else {
             throw YOLOTileRecognizerError.insufficientDetections(found: 0)
         }
@@ -88,7 +106,7 @@ final class VisionCoreMLYOLODetectorRecognizer: TileRecognizerProtocol {
         return try recognizeBestCandidate(snapshots: snapshots, model: model)
     }
 
-    private func recognizeBestCandidate(snapshots: [ARFrameSnapshot], model: VNCoreMLModel) throws -> OverlayResult {
+    private func recognizeBestCandidate(snapshots: [FrameSnapshot], model: VNCoreMLModel) throws -> OverlayResult {
         var bestRow: [Detection] = []
         var bestScore: Float = -1
         var bestFound = 0
@@ -121,8 +139,8 @@ final class VisionCoreMLYOLODetectorRecognizer: TileRecognizerProtocol {
         return OverlayResult(ids: ids, normalizedRowRect: Self.unionRect(bestRow.map { $0.boundingBox }))
     }
 
-    private func observations(for snap: ARFrameSnapshot, model: VNCoreMLModel) throws -> [VNRecognizedObjectObservation] {
-        let ci = CIImage(cvPixelBuffer: snap.rgb)
+    private func observations(for snap: FrameSnapshot, model: VNCoreMLModel) throws -> [VNRecognizedObjectObservation] {
+        let ci = CIImage(cvPixelBuffer: snap.image)
         let oriented = ci.oriented(forExifOrientation: Int32(snap.exifOrientation.rawValue))
 
         let request = VNCoreMLRequest(model: model)
@@ -132,18 +150,6 @@ final class VisionCoreMLYOLODetectorRecognizer: TileRecognizerProtocol {
         try handler.perform([request])
 
         return (request.results as? [VNRecognizedObjectObservation]) ?? []
-    }
-
-    private func parseObservations(_ observations: [VNRecognizedObjectObservation]) throws -> [Int] {
-        let detections = try parseDetections(observations)
-        let row = selectPrimaryRow(from: detections)
-        let ids = sortedIds(from: row)
-
-        if ids.count < 13 {
-            throw YOLOTileRecognizerError.insufficientDetections(found: ids.count)
-        }
-
-        return ids
     }
 
     private func parseDetections(_ observations: [VNRecognizedObjectObservation]) throws -> [Detection] {

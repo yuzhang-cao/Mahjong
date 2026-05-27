@@ -1,16 +1,9 @@
-//
-//  AVCapturePreviewContainer.swift
-//  MahjongTing
-//
-//  Created by caoyuzhang on 3/19/26.
-//
-
 import SwiftUI
 import AVFoundation
 import UIKit
 
-struct AVCapturePreviewContainer: UIViewRepresentable {
-    @ObservedObject var manager: AVCaptureTileScanManager
+struct CameraPreview: UIViewRepresentable {
+    @ObservedObject var manager: CameraManager
 
     func makeCoordinator() -> Coordinator {
         Coordinator(manager: manager)
@@ -32,9 +25,9 @@ struct AVCapturePreviewContainer: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject {
-        let manager: AVCaptureTileScanManager
+        let manager: CameraManager
 
-        init(manager: AVCaptureTileScanManager) {
+        init(manager: CameraManager) {
             self.manager = manager
         }
 

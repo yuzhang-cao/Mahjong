@@ -6,14 +6,8 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		491C4F812F1E2F0A005FC428 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 491C4F802F1E2F0A005FC428 /* ZIPFoundation */; };
-		4940C7552F73C96C00361126 /* .md in Resources */ = {isa = PBXBuildFile; fileRef = 4940C7542F73C96C00361126 /* .md */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXFileReference section */
-		4940C7542F73C96C00361126 /* .md */ = {isa = PBXFileReference; lastKnownFileType = text; path = .md; sourceTree = "<group>"; };
-		49EACD422F0950D8008C5D39 /* MahjongTing.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = MahjongTing.app; path = "/Users/caoyuzhang/Desktop/MahjongTing4.1_副本/build/Debug-iphoneos/MahjongTing.app"; sourceTree = "<absolute>"; };
+		4922D5842FC3EB57009E03CF /* MahjongTing.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MahjongTing.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -22,9 +16,6 @@
 			membershipExceptions = (
 				Info.plist,
 			);
-			platformFiltersByRelativePath = {
-				"mahjong-ios-wrapper-kit 2/MahjongTingApp.swift" = (ios, );
-			};
 			target = 49EACD412F0950D8008C5D39 /* MahjongTing */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -45,7 +36,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				491C4F812F1E2F0A005FC428 /* ZIPFoundation in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -56,7 +46,7 @@
 			isa = PBXGroup;
 			children = (
 				49EACD442F0950D8008C5D39 /* MahjongTing */,
-				4940C7542F73C96C00361126 /* .md */,
+				4922D5842FC3EB57009E03CF /* MahjongTing.app */,
 			);
 			sourceTree = "<group>";
 		};
@@ -80,10 +70,9 @@
 			);
 			name = MahjongTing;
 			packageProductDependencies = (
-				491C4F802F1E2F0A005FC428 /* ZIPFoundation */,
 			);
 			productName = MahjongTing;
-			productReference = 49EACD422F0950D8008C5D39 /* MahjongTing.app */;
+			productReference = 4922D5842FC3EB57009E03CF /* MahjongTing.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -111,7 +100,6 @@
 			mainGroup = 49EACD392F0950D8008C5D39;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				491C4F7F2F1E2F0A005FC428 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 49EACD392F0950D8008C5D39;
@@ -128,7 +116,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				4940C7552F73C96C00361126 /* .md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -360,25 +347,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		491C4F7F2F1E2F0A005FC428 /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/weichsel/ZIPFoundation.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.9.20;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		491C4F802F1E2F0A005FC428 /* ZIPFoundation */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 491C4F7F2F1E2F0A005FC428 /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
-			productName = ZIPFoundation;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 49EACD3A2F0950D8008C5D39 /* Project object */;
 }

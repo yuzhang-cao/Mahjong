@@ -1,12 +1,87 @@
-//
-//  DeveloperDatasetExport.swift
-//  MahjongTing
-//
-//  Developer-mode dataset export (no zipItem dependency)
-//
+// Test and developer utilities kept outside the app target.
+// They are not part of the runtime MahjongTing app logic.
 
 import Foundation
+import CoreImage
+import SwiftUI
+import UIKit
+
+#if canImport(ZIPFoundation)
 import ZIPFoundation
+#endif
+
+enum TestDatasetStoreError: LocalizedError {
+    case invalidLabel(Int)
+    case imageRenderFailed
+    case jpegEncodingFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidLabel(let label):
+            return "样本类别无效：\(label)"
+        case .imageRenderFailed:
+            return "样本图片渲染失败"
+        case .jpegEncodingFailed:
+            return "样本图片 JPEG 编码失败"
+        }
+    }
+}
+
+final class TestDatasetStore {
+    static let shared = TestDatasetStore()
+    private init() {}
+
+    private let ciContext: CIContext = CIContext()
+
+    func datasetRootURL() -> URL {
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return FileManager.default.temporaryDirectory
+                .appendingPathComponent("MahjongDataset", isDirectory: true)
+        }
+        return docs.appendingPathComponent("MahjongDataset", isDirectory: true)
+    }
+
+    func ensureTrainingFolders() throws {
+        let training = datasetRootURL().appendingPathComponent("Training", isDirectory: true)
+
+        if !FileManager.default.fileExists(atPath: training.path) {
+            try FileManager.default.createDirectory(at: training, withIntermediateDirectories: true)
+        }
+
+        for label in 0..<34 {
+            let dir = training.appendingPathComponent("\(label)", isDirectory: true)
+            if !FileManager.default.fileExists(atPath: dir.path) {
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            }
+        }
+    }
+
+    func saveTrainingPatch(ciImage: CIImage, label: Int) throws -> URL {
+        if label < 0 || label >= 34 {
+            throw TestDatasetStoreError.invalidLabel(label)
+        }
+
+        try ensureTrainingFolders()
+
+        let outDir = datasetRootURL()
+            .appendingPathComponent("Training", isDirectory: true)
+            .appendingPathComponent("\(label)", isDirectory: true)
+
+        guard let cg = ciContext.createCGImage(ciImage, from: ciImage.extent) else {
+            throw TestDatasetStoreError.imageRenderFailed
+        }
+
+        let image = UIImage(cgImage: cg)
+        guard let jpeg = image.jpegData(compressionQuality: 0.92) else {
+            throw TestDatasetStoreError.jpegEncodingFailed
+        }
+
+        let name = "\(ISO8601DateFormatter().string(from: Date()))_\(UUID().uuidString).jpg"
+        let url = outDir.appendingPathComponent(name)
+        try jpeg.write(to: url, options: [.atomic])
+        return url
+    }
+}
 
 enum DeveloperExportError: LocalizedError {
     case datasetNotFound
@@ -34,7 +109,7 @@ final class DeveloperDatasetExport {
     ///   EXPORT_OK.txt
     static func exportMahjongDatasetFolder() throws -> URL {
         let fm = FileManager.default
-        let src = MahjongDatasetStore.shared.datasetRootURL()
+        let src = TestDatasetStore.shared.datasetRootURL()
 
         guard fm.fileExists(atPath: src.path) else {
             throw DeveloperExportError.datasetNotFound
@@ -100,6 +175,7 @@ final class DeveloperDatasetExport {
     /// 导出数据集为 zip（使用 ZIPFoundation，不依赖 iOS 16 的 FileManager.zipItem）
     /// - Parameter shouldKeepParent: true 表示 zip 里保留外层目录名（解压后是 MahjongDataset_Export_xxx/...）
     static func exportMahjongDatasetZip(shouldKeepParent: Bool = true) throws -> URL {
+        #if canImport(ZIPFoundation)
         let fm = FileManager.default
 
         // 1) 复用你现有的“导出文件夹”逻辑：包含复制、校验、manifest、ok 文件
@@ -157,13 +233,16 @@ final class DeveloperDatasetExport {
         }
 
         return zipURL
+        #else
+        throw DeveloperExportError.exportCopyFailed("当前环境没有 ZIPFoundation，无法导出 ZIP。")
+        #endif
     }
 
 
     /// 导出某个 label 最新的一张 jpg（用于验证“导出/分享链路是否能带文件”）
     static func exportLatestSample(label: Int) throws -> URL {
         let fm = FileManager.default
-        let root = MahjongDatasetStore.shared.datasetRootURL()
+        let root = TestDatasetStore.shared.datasetRootURL()
 
         let dir = root
             .appendingPathComponent("Training", isDirectory: true)
@@ -239,5 +318,14 @@ final class DeveloperDatasetExport {
 
         return lines.joined(separator: "\n")
     }
-    
+}
+
+struct TestActivityView: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

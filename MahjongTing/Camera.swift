@@ -1,10 +1,3 @@
-//
-//  AVCaptureTileScanManager.swift
-//  MahjongTing
-//
-//  Created by caoyuzhang on 3/19/26.
-//
-
 import Foundation
 import Combine
 import AVFoundation
@@ -12,11 +5,11 @@ import UIKit
 import ImageIO
 import OSLog
 
-nonisolated final class AVCaptureFrameOutput: NSObject,
+nonisolated final class CameraFrameOutput: NSObject,
     AVCaptureVideoDataOutputSampleBufferDelegate,
     @unchecked Sendable {
 
-    private var snapshotBuffer: [ARFrameSnapshot] = []
+    private var snapshotBuffer: [FrameSnapshot] = []
     private let snapshotLock = NSLock()
     private var deviceOrientation: UIDeviceOrientation = .portrait
     private let orientationLock = NSLock()
@@ -40,7 +33,7 @@ nonisolated final class AVCaptureFrameOutput: NSObject,
         super.init()
     }
 
-    var snapshots: [ARFrameSnapshot] {
+    var snapshots: [FrameSnapshot] {
         snapshotLock.lock()
         defer { snapshotLock.unlock() }
         return snapshotBuffer
@@ -101,7 +94,6 @@ nonisolated final class AVCaptureFrameOutput: NSObject,
 
         let now = CACurrentMediaTime()
 
-        // 预览图节流
         if now - lastPreviewTime >= previewInterval {
             lastPreviewTime = now
 
@@ -112,18 +104,13 @@ nonisolated final class AVCaptureFrameOutput: NSObject,
             }
         }
 
-        // burst 抓帧
         guard isCapturing else { return }
 
         if lastCaptureTime == 0 || (now - lastCaptureTime) >= captureInterval {
             lastCaptureTime = now
 
-            let snapshot = ARFrameSnapshot(
-                rgb: pixelBuffer,
-                depth: nil,
-                depthConfidence: nil,
-                intrinsics: matrix_identity_float3x3,
-                cameraTransform: matrix_identity_float4x4,
+            let snapshot = FrameSnapshot(
+                image: pixelBuffer,
                 timestamp: now,
                 exifOrientation: currentExifOrientation
             )
@@ -141,9 +128,9 @@ nonisolated final class AVCaptureFrameOutput: NSObject,
     }
 }
 
-final class AVCaptureTileScanManager: NSObject, ObservableObject {
+final class CameraManager: NSObject, ObservableObject {
 
-    @Published private(set) var state: TileScanState = .idle
+    @Published private(set) var state: ScanState = .idle
     @Published private(set) var lastPreviewImage: UIImage? = nil
 
     let session = AVCaptureSession()
@@ -156,7 +143,7 @@ final class AVCaptureTileScanManager: NSObject, ObservableObject {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "MahjongTing",
                                 category: "Capture")
 
-    private lazy var frameOutput = AVCaptureFrameOutput(
+    private lazy var frameOutput = CameraFrameOutput(
         onPreviewImage: { [weak self] image in
             Task { @MainActor in
                 self?.lastPreviewImage = image
@@ -169,7 +156,7 @@ final class AVCaptureTileScanManager: NSObject, ObservableObject {
         }
     )
 
-    var snapshots: [ARFrameSnapshot] {
+    var snapshots: [FrameSnapshot] {
         frameOutput.snapshots
     }
 
@@ -211,7 +198,7 @@ final class AVCaptureTileScanManager: NSObject, ObservableObject {
             // 输入
             guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
                 DispatchQueue.main.async {
-                    self.state = .failed(message: "未找到后置摄像头。")
+                    self.state = .failed(message: CameraFailureMessage.noBackCamera)
                 }
                 self.session.commitConfiguration()
                 return
@@ -226,7 +213,7 @@ final class AVCaptureTileScanManager: NSObject, ObservableObject {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    self.state = .failed(message: "相机输入创建失败：\(error.localizedDescription)")
+                    self.state = .failed(message: CameraFailureMessage.inputFailed(error.localizedDescription))
                 }
                 self.session.commitConfiguration()
                 return

@@ -52,13 +52,10 @@ struct Meld: Identifiable, Equatable, Codable {
     }
 
     var displayName: String {
-        if kind == .pong { return "碰" }
-        if kind == .kong {
-            if kongType == .an { return "暗杠" }
-            if kongType == .ming { return "明杠" }
-            if kongType == .add { return "加杠" }
-            return "杠"
-        }
-        return "副露"
+        displayName(language: .zh)
+    }
+
+    func displayName(language: AppLanguage) -> String {
+        AppText.meldDisplayName(kind: kind, kongType: kongType, language: language)
     }
 }

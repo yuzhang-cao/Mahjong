@@ -28,8 +28,8 @@
 
 ## 模型权重来源说明
 
-- 当前仓库不附带训练权重
-- iOS 端已经预留 `VisionCoreMLTileRecognizer` 接口，接入权重后即可切换到 CoreML 识别流程
+- 当前仓库包含 `TileModel.mlpackage`
+- iOS 端通过 `Recognizer.swift` 加载 CoreML 识别模型
 - 后续放入仓库的权重文件，需要单独写清楚训练数据来源、标签版本、训练日期、导出方式和许可证
 
 ## 清洗 / 标注 / 重构记录
@@ -40,15 +40,14 @@
 - 类别映射见 `CATEGORY_MAPPING.md`
 
 ### 数据整理
-- 本地采集目录统一为 `Documents/MahjongDataset/Training/0..33`
-- 导出时按类别目录原样复制，并生成 `EXPORT_MANIFEST.txt`
-- 采集图像统一保存为 JPEG
+- 开发期数据集保存与导出代码已移到根目录 `TestCode.swift`
+- 该文件不参与 App target 的运行逻辑
 
 ### 图像处理
-- 单牌 patch 通过矩形检测 + 透视矫正生成
-- 扫描页支持 burst 抓帧，为后续多帧投票预留接口
+- 扫描页使用 AVCapture burst 抓帧
+- CoreML 识别器负责整排检测、排序和类别映射
 
 ### 代码结构
-- 扫描、分类、规则计算、数据集保存、导出分开实现
+- 扫描、识别、规则计算分开实现
 - 识别器通过 `TileRecognizerProtocol` 抽象，便于替换模型实现
-- 当前主入口为原生 iOS 界面 `NativeMahjongView.swift`
+- 当前主入口为原生 iOS 界面 `MainView.swift`

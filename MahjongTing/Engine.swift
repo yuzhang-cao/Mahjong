@@ -8,11 +8,11 @@ enum MahjongRuleMode: String, CaseIterable, Identifiable {
     var id: String { self.rawValue }
 
     var displayName: String {
-        switch self {
-        case .auto: return "自动"
-        case .sichuan: return "四川"
-        case .guangdong: return "广东"
-        }
+        displayName(language: .zh)
+    }
+
+    func displayName(language: AppLanguage) -> String {
+        AppText.ruleModeName(self, language: language)
     }
 }
 
@@ -24,22 +24,26 @@ enum Suit: String, CaseIterable, Identifiable {
     var id: String { self.rawValue }
 
     var displayName: String {
-        switch self {
-        case .m: return "萬"
-        case .p: return "茼"
-        case .s: return "條"
-        }
+        displayName(language: .zh)
+    }
+
+    func displayName(language: AppLanguage) -> String {
+        AppText.suitTileSuffix(self, language: language)
+    }
+
+    func choiceName(language: AppLanguage) -> String {
+        AppText.suitChoiceName(self, language: language)
     }
 }
 
 struct MahjongEngine {
 
     // 0..26: 万筒条；27..33: 东南西北白发中
-    static func tileName34(_ idx: Int) -> String {
+    static func tileName34(_ idx: Int, language: AppLanguage = .zh) -> String {
         if idx < 0 || idx >= 34 { return "?" } // 防御式
         
         if idx >= 27 {
-            let names = ["東", "南", "西", "北", "白", "發", "中"]
+            let names = AppText.honorTileNames(language)
             return names[idx - 27]
         }
         let suit: Suit
@@ -54,7 +58,7 @@ struct MahjongEngine {
             suit = .s
             num = (idx - 18) + 1
         }
-        return "\(num)\(suit.displayName)"
+        return "\(num)\(suit.displayName(language: language))"
     }
     
     static func suitOf27(_ idx: Int) -> Suit {
@@ -112,20 +116,6 @@ struct MahjongEngine {
         }
         
         return hasPair
-    }
-    
-    private static func applyKongs(_ counts: [Int], kongedTiles: Set<Int>) -> (work: [Int], k: Int) {
-        var work = counts
-        var k = 0
-        
-        for idx in kongedTiles {
-            if idx < 0 || idx >= work.count { continue }
-            if work[idx] >= 4 {
-                work[idx] -= 4      // 已杠：4 张固定，不参与拆解
-                k += 1
-            }
-        }
-        return (work, k)
     }
     
     // MARK: - 面子拆解（万/筒/条）记忆化
@@ -218,209 +208,7 @@ struct MahjongEngine {
         return true
     }
     
-    // MARK: - 胡牌判定
-    
-    static func isWinningWithKongs(counts: [Int],
-                                   mode: MahjongRuleMode,
-                                   dingque: Suit?,
-                                   enableQiDui: Bool,
-                                   enable13yao: Bool,
-                                   kongedTiles: Set<Int>) -> Bool {
-        
-        let (work, k) = applyKongs(counts, kongedTiles: kongedTiles)
-        
-        // 杠会补牌：完整形态应为 14 + k
-        if counts.reduce(0, +) != 14 + k { return false }
-        
-        // 四川定缺检查仍针对“全部牌”（含杠牌也属于你的牌）
-        if mode == .sichuan, let dq = dingque {
-            if countSuit27(counts, dq) != 0 { return false }
-        }
-        
-        // 已杠后按常见规则：七对/十三幺不再成立（副露/固定面子）
-        let allowSpecial = (k == 0)
-        
-        if allowSpecial, enableQiDui, isQiDui(work) { return true }
-        if allowSpecial, mode == .guangdong, enable13yao, work.count == 34, isThirteenOrphans(work) { return true }
-        
-        // 剩余可拆解牌必须能组成 (4-k) 个面子 + 1 将
-        let workTotal = work.reduce(0, +)
-        if workTotal != 14 - 3 * k { return false } // 14+k 扣掉 4k => 14-3k
-        
-        for pair in 0..<work.count {
-            if work[pair] >= 2 {
-                var tmp = work
-                tmp[pair] -= 2
-                
-                let ok: Bool
-                if mode == .sichuan {
-                    ok = canAllMelds27(tmp)
-                } else {
-                    ok = canAllMelds34(tmp)
-                }
-                
-                if ok { return true }
-            }
-        }
-        
-        return false
-    }
-    
-    
-    // MARK: - 听牌计算（13 张）
-    static func calcWaitsFrom13(counts13: [Int],
-                                mode: MahjongRuleMode,
-                                dingque: Suit?,
-                                enableQiDui: Bool,
-                                enable13yao: Bool) -> [Int] {
-        return calcWaitsWithKongs(counts: counts13,
-                                  mode: mode,
-                                  dingque: dingque,
-                                  enableQiDui: enableQiDui,
-                                  enable13yao: enable13yao,
-                                  kongedTiles: Set<Int>())
-    }
-    
-    static func isWinning(counts: [Int],
-                          mode: MahjongRuleMode,
-                          dingque: Suit?,
-                          enableQiDui: Bool,
-                          enable13yao: Bool) -> Bool {
-        return isWinningWithKongs(counts: counts,
-                                  mode: mode,
-                                  dingque: dingque,
-                                  enableQiDui: enableQiDui,
-                                  enable13yao: enable13yao,
-                                  kongedTiles: Set<Int>())
-    }
-    
-    static func calcWaitsWithKongs(counts: [Int],
-                                   mode: MahjongRuleMode,
-                                   dingque: Suit?,
-                                   enableQiDui: Bool,
-                                   enable13yao: Bool,
-                                   kongedTiles: Set<Int>) -> [Int] {
-        
-        let (_, k) = applyKongs(counts, kongedTiles: kongedTiles)
-        
-        // 听牌态应为 13 + k
-        if counts.reduce(0, +) != 13 + k { return [] }
-        
-        // 四川未清缺不听
-        if mode == .sichuan, let dq = dingque {
-            if countSuit27(counts, dq) != 0 { return [] }
-        }
-        
-        var waits: [Int] = []
-        
-        for t in 0..<counts.count {
-            if counts[t] >= 4 { continue } // 牌已经 4 张，不可能再胡这张
-            
-            // 四川：不听缺门
-            if mode == .sichuan, let dq = dingque, counts.count == 27 {
-                if suitOf27(t) == dq { continue }
-            }
-            
-            var tmp = counts
-            tmp[t] += 1
-            
-            if isWinningWithKongs(counts: tmp,
-                                  mode: mode,
-                                  dingque: dingque,
-                                  enableQiDui: enableQiDui,
-                                  enable13yao: enable13yao,
-                                  kongedTiles: kongedTiles) {
-                waits.append(t)
-            }
-        }
-        
-        return waits
-    }
-    
-    // MARK: - 出牌建议（支持已杠锁定：杠牌不可打出）
-    static func calcSuggestionsWithKongs(
-        counts: [Int],
-        mode: MahjongRuleMode,
-        dingque: Suit?,
-        enableQiDui: Bool,
-        enable13yao: Bool,
-        kongedTiles: Set<Int>,
-        limit: Int = 12
-    ) -> [(discard: Int, waits: [Int])] {
-        
-        var activeKonged: Set<Int> = []
-        for idx in kongedTiles {
-            if idx >= 0 && idx < counts.count && counts[idx] >= 4 {
-                activeKonged.insert(idx)
-            }
-        }
-        
-        let (_, k) = applyKongs(counts, kongedTiles: activeKonged)
-        if counts.reduce(0, +) != 14 + k { return [] }
-        
-        var discards: [Int] = []
-        for i in 0..<counts.count {
-            if counts[i] <= 0 { continue }
-            if activeKonged.contains(i) { continue }   // 杠牌不可打出
-            discards.append(i)
-        }
-        
-        if mode == .sichuan, let dq = dingque {
-            if countSuit27(counts, dq) != 0 {
-                discards = discards.filter { suitOf27($0) == dq && !activeKonged.contains($0) }
-            }
-        }
-        
-        var res: [(discard: Int, waits: [Int])] = []
-        
-        for d in discards {
-            var tmp = counts
-            tmp[d] -= 1
-            
-            let waits = calcWaitsWithKongs(
-                counts: tmp,
-                mode: mode,
-                dingque: dingque,
-                enableQiDui: enableQiDui,
-                enable13yao: enable13yao,
-                kongedTiles: activeKonged
-            )
-            
-            if !waits.isEmpty {
-                res.append((discard: d, waits: waits))
-            }
-        }
-        
-        res.sort { a, b in
-            if a.waits.count != b.waits.count { return a.waits.count > b.waits.count }
-            return a.discard < b.discard
-        }
-        
-        if res.count > limit { return Array(res.prefix(limit)) }
-        return res
-    }
-    
-    static func calcSuggestionsFrom14(
-        counts14: [Int],
-        mode: MahjongRuleMode,
-        dingque: Suit?,
-        enableQiDui: Bool,
-        enable13yao: Bool,
-        limit: Int = 12
-    ) -> [(discard: Int, waits: [Int])] {
-        
-        // 兼容旧逻辑：默认无杠
-        return calcSuggestionsWithKongs(
-            counts: counts14,
-            mode: mode,
-            dingque: dingque,
-            enableQiDui: enableQiDui,
-            enable13yao: enable13yao,
-            kongedTiles: Set<Int>(),
-            limit: limit
-        )
-    }
-    // MARK: - 方案B：副露（碰/杠）剥离版接口
+    // MARK: - Meld-aware APIs
 
     private static func addExtrasToCounts(_ concealed: [Int], _ extras: [Int]) -> [Int] {
         var res = concealed
